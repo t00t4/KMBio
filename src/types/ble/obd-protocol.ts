@@ -10,11 +10,12 @@ export interface OBDCommand {
 export interface OBDResponse {
   pid: string;
   rawValue: string;
-  processedValue: number;
-  unit: string;
+  processedValue?: number;
+  unit?: string;
   timestamp: Date;
   isValid: boolean;
   error?: string;
+  description?: string;
 }
 
 export interface ELM327Config {
@@ -29,14 +30,13 @@ export interface ELM327Config {
 
 export type OBDProtocol = 
   | 'AUTO'
-  | 'SAE_J1850_PWM'
-  | 'SAE_J1850_VPW'
-  | 'ISO_9141_2'
-  | 'ISO_14230_4_KWP'
-  | 'ISO_15765_4_CAN'
-  | 'SAE_J1939_CAN'
-  | 'USER1_CAN'
-  | 'USER2_CAN';
+  | 'ISO9141-2'
+  | 'KWP2000_5_BAUD'
+  | 'KWP2000_FAST'
+  | 'CAN_11BIT_500K'
+  | 'CAN_29BIT_500K'
+  | 'CAN_11BIT_250K'
+  | 'CAN_29BIT_250K';
 
 export interface OBDConnectionInfo {
   protocol: OBDProtocol;

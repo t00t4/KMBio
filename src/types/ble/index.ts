@@ -19,7 +19,7 @@ export interface BLEServiceInterface {
   startDataCollection(frequency: number): void;
   stopDataCollection(): void;
   onConnectionStateChange(callback: (state: BLEConnectionState) => void): void;
-  onDataReceived(callback: (data: OBDResponse) => void): void;
+  onDataReceived(callback: (data: unknown) => void): void;
   onError(callback: (error: BLEError) => void): void;
 }
 

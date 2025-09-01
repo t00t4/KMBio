@@ -185,9 +185,10 @@ export class PermissionsManager {
   /**
    * Check if we should show permission rationale
    */
-  private static async shouldShowPermissionRationale(_permissions: string[]): Promise<boolean> {
+  private static async shouldShowPermissionRationale(permissions: string[]): Promise<boolean> {
     // Note: shouldShowRequestPermissionRationale is not available in current RN types
     // This is a simplified implementation
+    console.log('Checking rationale for permissions:', permissions);
     return false;
   }
 }

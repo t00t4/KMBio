@@ -100,6 +100,7 @@ export class BluetoothUtils {
         }
       } catch (error) {
         // Fallback to general settings
+        console.warn('Failed to open Bluetooth settings:', error);
         Linking.openSettings();
       }
     } else {
