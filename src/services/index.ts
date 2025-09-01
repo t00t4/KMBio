@@ -1,3 +1,2 @@
 // Export all services
-// Placeholder for future services
-export {};
+export { supabase } from './supabase';

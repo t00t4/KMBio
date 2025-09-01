@@ -9,3 +9,6 @@ export * from './api';
 
 // Application state types
 export * from './app-state';
+
+// Auth types
+export * from './auth';
