@@ -59,7 +59,7 @@ export default function ForgotPasswordScreen({ navigation }: ForgotPasswordScree
       } else {
         Alert.alert('Erro', result.error || 'Erro ao enviar email de recuperação');
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Erro', 'Erro inesperado ao enviar email de recuperação');
     }
   };

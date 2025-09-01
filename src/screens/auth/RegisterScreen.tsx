@@ -86,7 +86,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps): Rea
           [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
         );
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Erro', 'Erro inesperado ao criar conta');
     }
   };

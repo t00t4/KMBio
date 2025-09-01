@@ -1,31 +1,127 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useEffect } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  ScrollView, 
+  TouchableOpacity, 
+  Alert,
+  RefreshControl
+} from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useVehicleStore } from '../../stores/vehicles';
+import { FuelType } from '../../types/entities';
 
-export default function VehicleManagementScreen({ navigation }: any): React.JSX.Element {
-  // Mock data - TODO: Replace with actual data from store
-  const vehicles = [
-    {
-      id: '1',
-      name: 'Honda Civic 2020',
-      make: 'Honda',
-      model: 'Civic',
-      year: 2020,
-      fuelType: 'flex',
-      isActive: true,
-    },
-  ];
+const getFuelTypeLabel = (fuelType: FuelType): string => {
+  const labels = {
+    gasoline: 'Gasolina',
+    ethanol: 'Etanol',
+    diesel: 'Diesel',
+    flex: 'Flex',
+  };
+  return labels[fuelType] || fuelType;
+};
+
+export default function VehicleManagementScreen(): React.JSX.Element {
+  const navigation = useNavigation();
+  const { 
+    vehicles, 
+    loading, 
+    error, 
+    fetchVehicles, 
+    deleteVehicle, 
+    setActiveVehicle,
+    clearError 
+  } = useVehicleStore();
+
+  // Fetch vehicles when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchVehicles();
+    }, [fetchVehicles])
+  );
+
+  // Clear errors when component mounts
+  useEffect(() => {
+    clearError();
+  }, [clearError]);
 
   const handleAddVehicle = () => {
-    navigation.navigate('AddVehicle');
+    (navigation as any).navigate('AddVehicle');
   };
 
   const handleEditVehicle = (vehicleId: string) => {
-    navigation.navigate('EditVehicle', { vehicleId });
+    (navigation as any).navigate('EditVehicle', { vehicleId });
   };
 
+  const handleSetActiveVehicle = async (vehicleId: string) => {
+    try {
+      await setActiveVehicle(vehicleId);
+    } catch (error) {
+      Alert.alert(
+        'Erro',
+        error instanceof Error ? error.message : 'Erro ao definir veículo ativo'
+      );
+    }
+  };
+
+  const handleDeleteVehicle = (vehicleId: string, vehicleName: string) => {
+    Alert.alert(
+      'Confirmar exclusão',
+      `Tem certeza que deseja remover o veículo "${vehicleName}"? Esta ação não pode ser desfeita.`,
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Remover',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteVehicle(vehicleId);
+              Alert.alert('Sucesso', 'Veículo removido com sucesso!');
+            } catch (error) {
+              Alert.alert(
+                'Erro',
+                error instanceof Error ? error.message : 'Erro ao remover veículo'
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRefresh = () => {
+    fetchVehicles();
+  };
+
+  // Show error if exists
+  if (error && !loading) {
+    return (
+      <View style={styles.errorContainer}>
+        <Icon name="error-outline" size={64} color="#F44336" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+          <Text style={styles.retryButtonText}>Tentar novamente</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl
+          refreshing={loading}
+          onRefresh={handleRefresh}
+          colors={['#2E7D32']}
+        />
+      }
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Meus Veículos</Text>
         <TouchableOpacity style={styles.addButton} onPress={handleAddVehicle}>
@@ -42,7 +138,10 @@ export default function VehicleManagementScreen({ navigation }: any): React.JSX.
             <View style={styles.vehicleInfo}>
               <Text style={styles.vehicleName}>{vehicle.name}</Text>
               <Text style={styles.vehicleDetails}>
-                {vehicle.year} • {vehicle.fuelType === 'flex' ? 'Flex' : vehicle.fuelType}
+                {vehicle.make} {vehicle.model} • {vehicle.year}
+              </Text>
+              <Text style={styles.vehicleSpecs}>
+                {getFuelTypeLabel(vehicle.fuelType)} • {vehicle.engineSize}L
               </Text>
             </View>
             {vehicle.isActive && (
@@ -53,6 +152,16 @@ export default function VehicleManagementScreen({ navigation }: any): React.JSX.
           </View>
           
           <View style={styles.vehicleActions}>
+            {!vehicle.isActive && (
+              <TouchableOpacity 
+                style={styles.actionButton}
+                onPress={() => handleSetActiveVehicle(vehicle.id)}
+              >
+                <Icon name="radio-button-unchecked" size={16} color="#2E7D32" />
+                <Text style={[styles.actionText, { color: '#2E7D32' }]}>Ativar</Text>
+              </TouchableOpacity>
+            )}
+            
             <TouchableOpacity 
               style={styles.actionButton}
               onPress={() => handleEditVehicle(vehicle.id)}
@@ -61,7 +170,10 @@ export default function VehicleManagementScreen({ navigation }: any): React.JSX.
               <Text style={styles.actionText}>Editar</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => handleDeleteVehicle(vehicle.id, vehicle.name)}
+            >
               <Icon name="delete" size={16} color="#F44336" />
               <Text style={[styles.actionText, { color: '#F44336' }]}>Remover</Text>
             </TouchableOpacity>
@@ -69,7 +181,7 @@ export default function VehicleManagementScreen({ navigation }: any): React.JSX.
         </View>
       ))}
 
-      {vehicles.length === 0 && (
+      {vehicles.length === 0 && !loading && (
         <View style={styles.emptyState}>
           <Icon name="directions-car" size={64} color="#ccc" />
           <Text style={styles.emptyText}>Nenhum veículo cadastrado</Text>
@@ -111,6 +223,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#2E7D32',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   vehicleCard: {
     backgroundColor: '#fff',
@@ -125,7 +242,7 @@ const styles = StyleSheet.create({
   },
   vehicleHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 16,
   },
   vehicleIcon: {
@@ -149,12 +266,18 @@ const styles = StyleSheet.create({
   vehicleDetails: {
     fontSize: 14,
     color: '#666',
+    marginBottom: 2,
+  },
+  vehicleSpecs: {
+    fontSize: 12,
+    color: '#999',
   },
   activeBadge: {
     backgroundColor: '#4CAF50',
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
+    marginLeft: 8,
   },
   activeText: {
     fontSize: 12,
@@ -172,38 +295,73 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
+    borderRadius: 6,
   },
   actionText: {
     fontSize: 14,
     color: '#666',
-    marginLeft: 8,
+    marginLeft: 6,
   },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 40,
+    marginTop: 60,
   },
   emptyText: {
     fontSize: 18,
     color: '#666',
     marginTop: 16,
     marginBottom: 8,
+    textAlign: 'center',
   },
   emptySubtext: {
     fontSize: 16,
     color: '#999',
     textAlign: 'center',
     marginBottom: 24,
+    lineHeight: 22,
   },
   primaryButton: {
     backgroundColor: '#2E7D32',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   primaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f5f5f5',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 16,
+    marginBottom: 20,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  retryButton: {
+    backgroundColor: '#2E7D32',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  retryButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',

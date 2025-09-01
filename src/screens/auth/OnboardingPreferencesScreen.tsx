@@ -69,7 +69,7 @@ export default function OnboardingPreferencesScreen({ navigation, route }: Onboa
           routes: [{ name: 'Login' }],
         });
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Erro', 'Erro inesperado. Tente novamente.');
     }
   };

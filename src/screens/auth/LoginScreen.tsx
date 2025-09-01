@@ -66,7 +66,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps): React.JSX
       if (!result.success) {
         Alert.alert('Erro', result.error || 'Erro ao fazer login');
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Erro', 'Erro inesperado ao fazer login');
     }
   };

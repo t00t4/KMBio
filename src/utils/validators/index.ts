@@ -64,3 +64,6 @@ export const getConfirmPasswordErrorMessage = (password: string, confirmPassword
 
 // Legacy exports for backward compatibility
 export const isValidEmail = validateEmail;
+
+// Vehicle validators
+export * from './vehicleValidators';
