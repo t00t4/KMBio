@@ -8,15 +8,15 @@ interface TripState {
   // Current trip data
   currentTrip: Trip | null;
   isActive: boolean;
-  
+
   // Real-time data
   realTimeData: RealTimeData | null;
   connectionStatus: ConnectionStatus;
-  
+
   // Telemetry service
   telemetryService: TelemetryService | null;
   telemetryConfig: TelemetryConfig;
-  
+
   // Trip events and statistics
   tripEvents: TripEvent[];
   tripStatistics: {
@@ -30,32 +30,35 @@ interface TripState {
     averageConsumption: number;
     efficiencyScore: number;
   };
-  
+
   // Data collection settings
   dataCollectionEnabled: boolean;
   backgroundMode: boolean;
-  
+
   // Actions
   startTrip: (vehicleId: string, telemetryService: TelemetryService) => Promise<void>;
   stopTrip: () => Promise<void>;
   pauseTrip: () => void;
   resumeTrip: () => void;
-  
+
   // Real-time data actions
   updateRealTimeData: (data: RealTimeData) => void;
   addTripEvent: (event: Omit<TripEvent, 'id' | 'tripId'>) => void;
-  
+
   // Telemetry configuration
   updateTelemetryConfig: (config: Partial<TelemetryConfig>) => void;
   setBackgroundMode: (enabled: boolean) => void;
-  
+
   // Data management
   clearTripData: () => void;
   getTripSummary: () => TripSummary;
-  
+
   // Utility functions
   calculateCurrentEfficiency: () => number;
   getRecentEvents: (minutes: number) => TripEvent[];
+
+  // Private helper methods
+  checkForTripEvents: (data: RealTimeData) => void;
 }
 
 const initialTripStatistics = {
@@ -101,7 +104,7 @@ export const useTripStore = create<TripState>()(
     // Trip management actions
     startTrip: async (vehicleId: string, telemetryService: TelemetryService) => {
       const state = get();
-      
+
       if (state.isActive) {
         console.warn('Trip is already active');
         return;
@@ -173,7 +176,7 @@ export const useTripStore = create<TripState>()(
         console.log('Trip started successfully:', newTrip.id);
       } catch (error) {
         console.error('Failed to start trip:', error);
-        
+
         // Reset state on failure
         set({
           currentTrip: null,
@@ -181,14 +184,14 @@ export const useTripStore = create<TripState>()(
           telemetryService: null,
           connectionStatus: 'disconnected',
         });
-        
+
         throw error;
       }
     },
 
     stopTrip: async () => {
       const state = get();
-      
+
       if (!state.isActive || !state.currentTrip) {
         console.warn('No active trip to stop');
         return;
@@ -203,7 +206,7 @@ export const useTripStore = create<TripState>()(
         // Update trip with final data
         const endTime = new Date();
         const duration = Math.floor((endTime.getTime() - state.currentTrip.startTime.getTime()) / 1000);
-        
+
         const finalTrip: Trip = {
           ...state.currentTrip,
           endTime,
@@ -228,10 +231,10 @@ export const useTripStore = create<TripState>()(
         });
 
         console.log('Trip stopped successfully:', finalTrip.id);
-        
+
         // TODO: Save trip to database
         // await saveTripToDatabase(finalTrip);
-        
+
       } catch (error) {
         console.error('Failed to stop trip:', error);
         throw error;
@@ -240,14 +243,14 @@ export const useTripStore = create<TripState>()(
 
     pauseTrip: () => {
       const state = get();
-      
+
       if (!state.isActive || !state.telemetryService) {
         return;
       }
 
       // Pause telemetry collection
       state.telemetryService.stop();
-      
+
       set({
         connectionStatus: 'disconnected',
       });
@@ -257,14 +260,14 @@ export const useTripStore = create<TripState>()(
 
     resumeTrip: () => {
       const state = get();
-      
+
       if (!state.isActive || !state.telemetryService) {
         return;
       }
 
       // Resume telemetry collection
       state.telemetryService.start(state.telemetryConfig);
-      
+
       set({
         connectionStatus: 'connected',
       });
@@ -275,7 +278,7 @@ export const useTripStore = create<TripState>()(
     // Real-time data management
     updateRealTimeData: (data: RealTimeData) => {
       const state = get();
-      
+
       if (!state.isActive || !state.currentTrip) {
         return;
       }
@@ -288,7 +291,7 @@ export const useTripStore = create<TripState>()(
 
       // Update trip statistics
       const newStats = { ...state.tripStatistics };
-      
+
       // Update max values
       if (data.speed > newStats.maxSpeed) {
         newStats.maxSpeed = data.speed;
@@ -303,7 +306,7 @@ export const useTripStore = create<TripState>()(
       newStats.averageRPM = ((newStats.averageRPM * (dataCount - 1)) + data.rpm) / dataCount;
       newStats.averageConsumption = data.calculated.averageConsumption;
       newStats.efficiencyScore = data.calculated.efficiency;
-      
+
       // Update fuel consumption (accumulate)
       const fuelFlowPerSecond = data.calculated.fuelFlow / 3600; // Convert L/h to L/s
       const timeIncrement = 1 / state.telemetryConfig.frequency; // Time between samples
@@ -327,7 +330,7 @@ export const useTripStore = create<TripState>()(
 
     addTripEvent: (event: Omit<TripEvent, 'id' | 'tripId'>) => {
       const state = get();
-      
+
       if (!state.currentTrip) {
         return;
       }
@@ -349,9 +352,9 @@ export const useTripStore = create<TripState>()(
     updateTelemetryConfig: (config: Partial<TelemetryConfig>) => {
       const state = get();
       const newConfig = { ...state.telemetryConfig, ...config };
-      
+
       set({ telemetryConfig: newConfig });
-      
+
       // Update running telemetry service if active
       if (state.telemetryService && state.isActive) {
         state.telemetryService.updateConfig(config);
@@ -360,9 +363,9 @@ export const useTripStore = create<TripState>()(
 
     setBackgroundMode: (enabled: boolean) => {
       const state = get();
-      
+
       set({ backgroundMode: enabled });
-      
+
       // Adjust telemetry frequency for background mode
       if (enabled) {
         // Reduce frequency to 0.5 Hz for battery optimization
@@ -387,7 +390,7 @@ export const useTripStore = create<TripState>()(
 
     getTripSummary: (): TripSummary => {
       const state = get();
-      
+
       // Count events by type
       const eventsCount = state.tripEvents.reduce((counts, event) => {
         counts[event.type] = (counts[event.type] || 0) + 1;
@@ -431,8 +434,8 @@ export const useTripStore = create<TripState>()(
     getRecentEvents: (minutes: number): TripEvent[] => {
       const state = get();
       const cutoffTime = new Date(Date.now() - minutes * 60 * 1000);
-      
-      return state.tripEvents.filter(event => 
+
+      return state.tripEvents.filter(event =>
         event.timestamp >= cutoffTime
       );
     },
@@ -440,16 +443,16 @@ export const useTripStore = create<TripState>()(
     // Private helper method (added to store for access to state)
     checkForTripEvents: (data: RealTimeData) => {
       const state = get();
-      
+
       if (!state.isActive || !state.currentTrip) {
         return;
       }
-      
+
       // Check for harsh acceleration (RPM increase > 1000 in short time)
       if (state.realTimeData) {
         const rpmDiff = data.rpm - state.realTimeData.rpm;
         const timeDiff = data.timestamp.getTime() - state.realTimeData.timestamp.getTime();
-        
+
         if (rpmDiff > 1000 && timeDiff < 3000) { // 1000 RPM increase in < 3 seconds
           get().addTripEvent({
             timestamp: data.timestamp,
