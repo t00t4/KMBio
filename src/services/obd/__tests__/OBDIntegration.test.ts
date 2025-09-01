@@ -72,10 +72,15 @@ class IntegrationMockBLEService implements BLEServiceInterface {
   }
 
   async scanForDevices(): Promise<any[]> {
-    return [{ id: 'elm327-integration', name: 'ELM327 Test Device' }];
+    return [{ 
+      id: 'elm327-integration', 
+      name: 'ELM327 Test Device',
+      rssi: -45,
+      isConnectable: true
+    }];
   }
 
-  async connectToDevice(): Promise<void> {
+  async connectToDevice(deviceId?: string): Promise<void> {
     this.connected = true;
   }
 
@@ -88,7 +93,13 @@ class IntegrationMockBLEService implements BLEServiceInterface {
   }
 
   getConnectionState(): any {
-    return this.connected ? 'connected' : 'disconnected';
+    return {
+      isScanning: false,
+      isConnecting: false,
+      isConnected: this.connected,
+      availableDevices: [],
+      connectionAttempts: 0
+    };
   }
 
   async sendCommand(command: string): Promise<string> {
