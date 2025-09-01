@@ -90,6 +90,11 @@ const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => 
       .single();
 
     if (error) {
+      // If the error is "no rows", it means the profile doesn't exist yet
+      if (error.code === 'PGRST116') {
+        console.log('User profile not found, will create it');
+        return null;
+      }
       console.error('Error fetching user profile:', error);
       return null;
     }
@@ -188,18 +193,15 @@ export const useAuthStore = create<AuthStore>()(
           }
 
           if (data.user) {
-            // The user profile will be created automatically by the database trigger
-            // Let's fetch it to ensure it exists
-            const profile = await fetchUserProfile(data.user.id);
-
+            // Create user object immediately with metadata, profile will sync later
             const user: User = {
               id: data.user.id,
               email: data.user.email!,
-              name: profile?.name || name,
+              name: name,
               createdAt: new Date(data.user.created_at),
-              preferences: profile?.preferences || defaultPreferences,
-              consentGiven: profile?.consent_given || false,
-              telemetryEnabled: profile?.telemetry_enabled ?? true,
+              preferences: defaultPreferences,
+              consentGiven: false,
+              telemetryEnabled: true,
             };
 
             set({
@@ -208,6 +210,23 @@ export const useAuthStore = create<AuthStore>()(
               isLoading: false,
               error: null
             });
+
+            // Try to sync with database profile in background
+            setTimeout(async () => {
+              if (data.user) {
+                const profile = await fetchUserProfile(data.user.id);
+                if (profile) {
+                  const updatedUser: User = {
+                    ...user,
+                    name: profile.name || name,
+                    preferences: profile.preferences || defaultPreferences,
+                    consentGiven: profile.consent_given || false,
+                    telemetryEnabled: profile.telemetry_enabled ?? true,
+                  };
+                  set({ user: updatedUser });
+                }
+              }
+            }, 2000);
           }
 
           return { success: true };
