@@ -29,6 +29,13 @@ interface NotificationSettings {
   vibration: boolean;
 }
 
+interface UserProfile {
+  name?: string;
+  preferences?: UserPreferences;
+  consent_given?: boolean;
+  telemetry_enabled?: boolean;
+}
+
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
@@ -43,17 +50,17 @@ interface AuthActions {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setOnboardingCompleted: (completed: boolean) => void;
-  
+
   // Authentication methods
   signUp: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
-  
+
   // Session management
   initialize: () => Promise<void>;
   refreshSession: () => Promise<void>;
-  
+
   // User profile management
   updateProfile: (updates: Partial<User>) => Promise<{ success: boolean; error?: string }>;
 }
@@ -73,6 +80,71 @@ const defaultPreferences: UserPreferences = {
   },
 };
 
+// Helper functions for user profile management
+const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('name, preferences, consent_given, telemetry_enabled')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      console.error('Error fetching user profile:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error fetching user profile:', error);
+    return null;
+  }
+};
+
+const createUserProfile = async (userId: string, email: string, name: string, preferences: UserPreferences, consentGiven: boolean, telemetryEnabled: boolean): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('users')
+      .insert({
+        id: userId,
+        email,
+        name,
+        preferences,
+        consent_given: consentGiven,
+        telemetry_enabled: telemetryEnabled,
+      });
+
+    if (error) {
+      console.error('Error creating user profile:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error creating user profile:', error);
+    return false;
+  }
+};
+
+const updateUserProfile = async (userId: string, updates: Partial<UserProfile>): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', userId);
+
+    if (error) {
+      console.error('Error updating user profile:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    return false;
+  }
+};
+
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
@@ -85,18 +157,18 @@ export const useAuthStore = create<AuthStore>()(
 
       // Basic state management
       setUser: (user) => set({ user, isAuthenticated: !!user, error: null }),
-      
+
       setLoading: (loading) => set({ isLoading: loading }),
-      
+
       setError: (error) => set({ error }),
-      
+
       setOnboardingCompleted: (completed) => set({ hasCompletedOnboarding: completed }),
-      
+
       // Authentication methods
       signUp: async (email: string, password: string, name: string) => {
         try {
           set({ isLoading: true, error: null });
-          
+
           const { data, error } = await supabase.auth.signUp({
             email,
             password,
@@ -116,37 +188,25 @@ export const useAuthStore = create<AuthStore>()(
           }
 
           if (data.user) {
-            // Create user profile in database
-            const { error: profileError } = await supabase
-              .from('users')
-              .insert({
-                id: data.user.id,
-                email: data.user.email!,
-                name,
-                preferences: defaultPreferences,
-                consent_given: false,
-                telemetry_enabled: true,
-              });
-
-            if (profileError) {
-              console.error('Error creating user profile:', profileError);
-            }
+            // The user profile will be created automatically by the database trigger
+            // Let's fetch it to ensure it exists
+            const profile = await fetchUserProfile(data.user.id);
 
             const user: User = {
               id: data.user.id,
               email: data.user.email!,
-              name,
+              name: profile?.name || name,
               createdAt: new Date(data.user.created_at),
-              preferences: defaultPreferences,
-              consentGiven: false,
-              telemetryEnabled: true,
+              preferences: profile?.preferences || defaultPreferences,
+              consentGiven: profile?.consent_given || false,
+              telemetryEnabled: profile?.telemetry_enabled ?? true,
             };
 
-            set({ 
-              user, 
-              isAuthenticated: true, 
+            set({
+              user,
+              isAuthenticated: true,
               isLoading: false,
-              error: null 
+              error: null
             });
           }
 
@@ -161,7 +221,7 @@ export const useAuthStore = create<AuthStore>()(
       signIn: async (email: string, password: string) => {
         try {
           set({ isLoading: true, error: null });
-          
+
           const { data, error } = await supabase.auth.signInWithPassword({
             email,
             password,
@@ -174,15 +234,7 @@ export const useAuthStore = create<AuthStore>()(
 
           if (data.user) {
             // Fetch user profile from database
-            const { data: profile, error: profileError } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', data.user.id)
-              .single();
-
-            if (profileError) {
-              console.error('Error fetching user profile:', profileError);
-            }
+            const profile = await fetchUserProfile(data.user.id);
 
             const user: User = {
               id: data.user.id,
@@ -194,11 +246,11 @@ export const useAuthStore = create<AuthStore>()(
               telemetryEnabled: profile?.telemetry_enabled ?? true,
             };
 
-            set({ 
-              user, 
-              isAuthenticated: true, 
+            set({
+              user,
+              isAuthenticated: true,
               isLoading: false,
-              error: null 
+              error: null
             });
           }
 
@@ -213,27 +265,27 @@ export const useAuthStore = create<AuthStore>()(
       signOut: async () => {
         try {
           set({ isLoading: true });
-          
+
           const { error } = await supabase.auth.signOut();
-          
+
           if (error) {
             console.error('Error signing out:', error);
           }
 
-          set({ 
-            user: null, 
-            isAuthenticated: false, 
+          set({
+            user: null,
+            isAuthenticated: false,
             isLoading: false,
             hasCompletedOnboarding: false,
-            error: null 
+            error: null
           });
         } catch (error) {
           console.error('Error during sign out:', error);
-          set({ 
-            user: null, 
-            isAuthenticated: false, 
+          set({
+            user: null,
+            isAuthenticated: false,
             isLoading: false,
-            error: null 
+            error: null
           });
         }
       },
@@ -241,7 +293,7 @@ export const useAuthStore = create<AuthStore>()(
       resetPassword: async (email: string) => {
         try {
           set({ isLoading: true, error: null });
-          
+
           const { error } = await supabase.auth.resetPasswordForEmail(email, {
             redirectTo: 'kmbio://reset-password',
           });
@@ -263,9 +315,9 @@ export const useAuthStore = create<AuthStore>()(
       initialize: async () => {
         try {
           set({ isLoading: true });
-          
+
           const { data: { session }, error } = await supabase.auth.getSession();
-          
+
           if (error) {
             console.error('Error getting session:', error);
             set({ isLoading: false, isAuthenticated: false, user: null });
@@ -274,15 +326,7 @@ export const useAuthStore = create<AuthStore>()(
 
           if (session?.user) {
             // Fetch user profile from database
-            const { data: profile, error: profileError } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', session.user.id)
-              .single();
-
-            if (profileError) {
-              console.error('Error fetching user profile:', profileError);
-            }
+            const profile = await fetchUserProfile(session.user.id);
 
             const user: User = {
               id: session.user.id,
@@ -294,24 +338,24 @@ export const useAuthStore = create<AuthStore>()(
               telemetryEnabled: profile?.telemetry_enabled ?? true,
             };
 
-            set({ 
-              user, 
-              isAuthenticated: true, 
+            set({
+              user,
+              isAuthenticated: true,
               isLoading: false,
-              error: null 
+              error: null
             });
           } else {
-            set({ 
+            set({
               isLoading: false,
               isAuthenticated: false,
-              user: null 
+              user: null
             });
           }
         } catch (error) {
           console.error('Error initializing auth:', error);
-          set({ 
-            isLoading: false, 
-            isAuthenticated: false, 
+          set({
+            isLoading: false,
+            isAuthenticated: false,
             user: null,
             error: error instanceof Error ? error.message : 'Erro de inicialização'
           });
@@ -321,7 +365,7 @@ export const useAuthStore = create<AuthStore>()(
       refreshSession: async () => {
         try {
           const { data, error } = await supabase.auth.refreshSession();
-          
+
           if (error) {
             console.error('Error refreshing session:', error);
             return;
@@ -345,20 +389,19 @@ export const useAuthStore = create<AuthStore>()(
 
           set({ isLoading: true, error: null });
 
-          // Update in Supabase database
-          const { error } = await supabase
-            .from('users')
-            .update({
-              name: updates.name,
-              preferences: updates.preferences,
-              consent_given: updates.consentGiven,
-              telemetry_enabled: updates.telemetryEnabled,
-            })
-            .eq('id', user.id);
+          // Prepare updates for database
+          const dbUpdates: Partial<UserProfile> = {};
+          if (updates.name !== undefined) dbUpdates.name = updates.name;
+          if (updates.preferences !== undefined) dbUpdates.preferences = updates.preferences;
+          if (updates.consentGiven !== undefined) dbUpdates.consent_given = updates.consentGiven;
+          if (updates.telemetryEnabled !== undefined) dbUpdates.telemetry_enabled = updates.telemetryEnabled;
 
-          if (error) {
-            set({ error: error.message, isLoading: false });
-            return { success: false, error: error.message };
+          // Update in database
+          const success = await updateUserProfile(user.id, dbUpdates);
+
+          if (!success) {
+            set({ isLoading: false, error: 'Erro ao atualizar perfil no servidor' });
+            return { success: false, error: 'Erro ao atualizar perfil no servidor' };
           }
 
           // Update local state
@@ -387,15 +430,15 @@ export const useAuthStore = create<AuthStore>()(
 // Set up auth state listener
 supabase.auth.onAuthStateChange((event) => {
   const { initialize } = useAuthStore.getState();
-  
+
   if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
     initialize();
   } else if (event === 'SIGNED_OUT') {
-    useAuthStore.setState({ 
-      user: null, 
-      isAuthenticated: false, 
+    useAuthStore.setState({
+      user: null,
+      isAuthenticated: false,
       isLoading: false,
-      error: null 
+      error: null
     });
   }
 });
