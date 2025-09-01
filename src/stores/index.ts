@@ -1,3 +1,2 @@
-// Export all stores
-// Placeholder for future Zustand stores
-export {};
+// Export all stores here
+export * from './auth';

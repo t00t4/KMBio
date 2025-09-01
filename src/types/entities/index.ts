@@ -1,26 +1,21 @@
-// Entity types placeholder
-export interface User {
+// User related types
+export * from './user';
+
+// Vehicle related types
+export * from './vehicle';
+
+// Trip and journey related types
+export * from './trip';
+
+// OBD and real-time data types
+export * from './obd-data';
+
+// Tips and AI recommendations
+export * from './tips';
+
+// Common utility types
+export interface BaseEntity {
   id: string;
-  email: string;
-  name: string;
   createdAt: Date;
-}
-
-export interface Vehicle {
-  id: string;
-  userId: string;
-  name: string;
-  year: number;
-  make: string;
-  model: string;
-}
-
-export interface Trip {
-  id: string;
-  userId: string;
-  vehicleId: string;
-  startTime: Date;
-  endTime?: Date;
-  distance: number;
-  duration: number;
+  updatedAt: Date;
 }
