@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../services/supabase';
-import type { User as SupabaseUser, AuthError } from '@supabase/supabase-js';
+// Removed unused imports
 
 interface User {
   id: string;
@@ -21,9 +21,12 @@ interface UserPreferences {
 }
 
 interface NotificationSettings {
-  tripAlerts: boolean;
+  realTimeAlerts: boolean;
   weeklyReports: boolean;
   tips: boolean;
+  maintenance: boolean;
+  sound: boolean;
+  vibration: boolean;
 }
 
 interface AuthState {
@@ -61,9 +64,12 @@ const defaultPreferences: UserPreferences = {
   fuelUnit: 'L/100km',
   language: 'pt-BR',
   notifications: {
-    tripAlerts: true,
+    realTimeAlerts: true,
     weeklyReports: true,
     tips: true,
+    maintenance: true,
+    sound: true,
+    vibration: true,
   },
 };
 
@@ -379,7 +385,7 @@ export const useAuthStore = create<AuthStore>()(
 );
 
 // Set up auth state listener
-supabase.auth.onAuthStateChange((event, session) => {
+supabase.auth.onAuthStateChange((event) => {
   const { initialize } = useAuthStore.getState();
   
   if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {

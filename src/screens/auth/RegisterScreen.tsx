@@ -34,7 +34,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps): Rea
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigation.replace('Onboarding');
+      navigation.replace('OnboardingWelcome');
     }
   }, [isAuthenticated, navigation]);
 

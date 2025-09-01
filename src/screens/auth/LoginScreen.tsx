@@ -31,7 +31,8 @@ export default function LoginScreen({ navigation }: LoginScreenProps): React.JSX
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigation.replace('Main');
+      // Navigation will be handled by RootNavigator based on auth state
+      // No need to manually navigate here
     }
   }, [isAuthenticated, navigation]);
 

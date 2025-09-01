@@ -10,7 +10,14 @@ export type RootStackParamList = {
 
 // Auth Stack Navigator Types
 export type AuthStackParamList = {
-  Onboarding: undefined;
+  OnboardingWelcome: undefined;
+  OnboardingFeatures: undefined;
+  OnboardingPrivacy: undefined;
+  OnboardingPreferences: {
+    consentGiven: boolean;
+    telemetryEnabled: boolean;
+  };
+  Onboarding: undefined; // Keep for backward compatibility
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;

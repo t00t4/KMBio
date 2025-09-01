@@ -7,6 +7,7 @@ import AuthStackNavigator from './AuthStackNavigator';
 import MainTabNavigator from './MainTabNavigator';
 import PairingScreen from '../screens/pairing/PairingScreen';
 import TripDetailsScreen from '../screens/dashboard/TripDetailsScreen';
+import LoadingScreen from '../components/common/LoadingScreen';
 
 // Import auth store to check authentication state
 import { useAuthStore } from '../stores/auth';
@@ -14,13 +15,15 @@ import { useAuthStore } from '../stores/auth';
 const Stack = createStackNavigator<RootStackParamList>();
 
 export default function RootNavigator(): React.JSX.Element {
-  const { isAuthenticated, isLoading } = useAuthStore();
+  const { isAuthenticated, isLoading, hasCompletedOnboarding } = useAuthStore();
 
   // Show loading screen while checking auth state
   if (isLoading) {
-    // TODO: Replace with proper loading component
-    return <></>;
+    return <LoadingScreen message="Verificando autenticação..." />;
   }
+
+  // Determine if user should see auth flow
+  const shouldShowAuth = !isAuthenticated || !hasCompletedOnboarding;
 
   return (
     <Stack.Navigator
@@ -29,8 +32,8 @@ export default function RootNavigator(): React.JSX.Element {
         gestureEnabled: false,
       }}
     >
-      {!isAuthenticated ? (
-        // Auth flow - user is not authenticated
+      {shouldShowAuth ? (
+        // Auth flow - user is not authenticated or hasn't completed onboarding
         <Stack.Screen 
           name="Auth" 
           component={AuthStackNavigator}
@@ -39,7 +42,7 @@ export default function RootNavigator(): React.JSX.Element {
           }}
         />
       ) : (
-        // Main app flow - user is authenticated
+        // Main app flow - user is authenticated and has completed onboarding
         <>
           <Stack.Screen 
             name="Main" 

@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import RootNavigator from './RootNavigator';
+import LoadingScreen from '../components/common/LoadingScreen';
 import { useAuthStore } from '../stores/auth';
 
 // Deep linking configuration
@@ -45,7 +46,7 @@ export default function AppNavigationContainer(): React.JSX.Element {
       <NavigationContainer 
         theme={theme}
         linking={linking}
-        fallback={<></>} // TODO: Replace with proper loading component
+        fallback={<LoadingScreen message="Inicializando aplicativo..." />}
       >
         <RootNavigator />
       </NavigationContainer>
