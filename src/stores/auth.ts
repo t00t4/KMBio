@@ -214,7 +214,31 @@ export const useAuthStore = create<AuthStore>()(
             // Try to sync with database profile in background
             setTimeout(async () => {
               if (data.user) {
-                const profile = await fetchUserProfile(data.user.id);
+                let profile = await fetchUserProfile(data.user.id);
+                
+                // If profile doesn't exist, create it using RPC function
+                if (!profile) {
+                  console.log('Profile not found, creating via RPC...');
+                  try {
+                    const { error: rpcError } = await supabase.rpc('create_user_profile', {
+                      user_id: data.user.id,
+                      user_email: data.user.email!,
+                      user_name: name,
+                      user_preferences: defaultPreferences,
+                      consent_given: false,
+                      telemetry_enabled: true
+                    });
+                    
+                    if (!rpcError) {
+                      profile = await fetchUserProfile(data.user.id);
+                    } else {
+                      console.log('RPC creation failed, profile will be created on next login');
+                    }
+                  } catch (error) {
+                    console.log('RPC not available, profile will be created on next login');
+                  }
+                }
+                
                 if (profile) {
                   const updatedUser: User = {
                     ...user,

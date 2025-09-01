@@ -70,5 +70,48 @@ BEGIN
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 END $$;
 
+-- Criar função RPC para criar perfil de usuário (fallback se trigger falhar)
+CREATE OR REPLACE FUNCTION create_user_profile(
+  user_id UUID,
+  user_email TEXT,
+  user_name TEXT,
+  user_preferences JSONB DEFAULT NULL,
+  consent_given BOOLEAN DEFAULT false,
+  telemetry_enabled BOOLEAN DEFAULT true
+)
+RETURNS VOID AS $$
+BEGIN
+  -- Verificar se o perfil já existe
+  IF EXISTS (SELECT 1 FROM public.users WHERE id = user_id) THEN
+    RETURN;
+  END IF;
+  
+  -- Criar o perfil
+  INSERT INTO public.users (id, email, name, preferences, consent_given, telemetry_enabled)
+  VALUES (
+    user_id,
+    user_email,
+    user_name,
+    COALESCE(user_preferences, '{
+      "fuelUnit": "L/100km",
+      "language": "pt-BR",
+      "notifications": {
+        "realTimeAlerts": true,
+        "weeklyReports": true,
+        "tips": true,
+        "maintenance": true,
+        "sound": true,
+        "vibration": true
+      }
+    }'::jsonb),
+    consent_given,
+    telemetry_enabled
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Dar permissão para usuários autenticados chamarem a função
+GRANT EXECUTE ON FUNCTION create_user_profile TO authenticated;
+
 -- Testar se tudo está funcionando
-SELECT 'RLS policies and trigger updated successfully!' as status;
+SELECT 'RLS policies, trigger and RPC function updated successfully!' as status;
