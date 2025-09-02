@@ -4,6 +4,31 @@ export * from './device';
 // OBD-II protocol and communication types
 export * from './obd-protocol';
 
+// Bluetooth Initializer types
+export type {
+  BluetoothInitializer as IBluetoothInitializer,
+  BluetoothInitializationResult,
+  BluetoothInitializationStatus,
+  BluetoothCapabilities,
+  BluetoothInitializationError,
+  BluetoothErrorCode,
+  BluetoothDiagnosticInfo,
+  BluetoothStateChange,
+  PermissionChange
+} from './bluetooth-initializer';
+
+// Bluetooth State Manager types
+export type {
+  BluetoothStateManager as IBluetoothStateManager,
+  BluetoothSystemState,
+  BluetoothValidationResult,
+  BluetoothValidationIssue,
+  BluetoothValidationIssueType,
+  BluetoothStateChangeEvent,
+  BluetoothStateMonitoringConfig,
+  BluetoothPowerState
+} from './bluetooth-state-manager';
+
 // Re-export types for service interfaces
 import { BLEDevice, BLEConnectionState, BLEError } from './device';
 import { OBDResponse, OBDProtocol } from './obd-protocol';

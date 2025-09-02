@@ -28,55 +28,121 @@ export default function DashboardScreen(): React.JSX.Element {
 
   const handleConnectOBD = debounceNavigation(async () => {
     const context = { screen: 'Dashboard', component: 'ConnectOBDButton' };
+    const startTime = Date.now();
     
     logButtonPress('Connect OBD Device', context, {
       connectionState: connectionState.isConnected ? 'connected' : 'disconnected',
       isConnecting: connectionState.isConnecting,
-      connectedDevice: connectedDevice?.name || null
+      connectedDevice: connectedDevice?.name || null,
+      timestamp: new Date().toISOString()
     });
     
     // Prevent multiple simultaneous navigation attempts
     if (isNavigating) {
-      logUserInteraction('Duplicate navigation attempt blocked', context);
+      logUserInteraction('Duplicate navigation attempt blocked', context, {
+        reason: 'Already navigating',
+        currentState: 'navigating'
+      });
+      return;
+    }
+    
+    // Additional validation checks
+    if (connectionState.isConnecting) {
+      logUserInteraction('Navigation blocked - device connecting', context, {
+        reason: 'Device is currently connecting',
+        connectionState: 'connecting'
+      });
       return;
     }
     
     try {
       setIsNavigating(true);
-      logUserInteraction('Navigation state set to loading', context);
+      logUserInteraction('Navigation state set to loading', context, {
+        previousState: 'idle',
+        newState: 'navigating'
+      });
       
-      // Check if navigation is available
+      // Enhanced navigation validation
       if (!navigation) {
-        throw new Error('Navigation object not available');
+        throw new Error('Navigation object not available - navigation context missing');
       }
 
-      // Small delay to show loading state
+      // Validate navigation state
+      if (!navigation.navigate) {
+        throw new Error('Navigation.navigate function not available');
+      }
+
+      // Check if we can navigate (navigation state is ready)
+      const navigationState = navigation.getState?.();
+      if (navigationState && navigationState.stale) {
+        throw new Error('Navigation state is stale - please try again');
+      }
+
+      // Small delay to show loading state and ensure UI responsiveness
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      // Navigate to pairing screen
-      logNavigation('Dashboard', 'Pairing', context);
+      // Enhanced navigation with additional error context
+      logNavigation('Dashboard', 'Pairing', context, {
+        navigationMethod: 'navigate',
+        targetScreen: 'Pairing',
+        connectionState: connectionState.isConnected ? 'connected' : 'disconnected',
+        deviceName: connectedDevice?.name || null
+      });
+      
       navigation.navigate('Pairing');
-      logUserInteraction('Navigation completed successfully', context);
+      
+      // Log successful navigation with timing
+      const navigationTime = Date.now() - startTime;
+      logUserInteraction('Navigation completed successfully', context, {
+        duration: navigationTime,
+        targetScreen: 'Pairing',
+        success: true
+      });
       
     } catch (error) {
       const navigationError = error instanceof Error ? error : new Error(String(error));
+      const errorTime = Date.now() - startTime;
       
+      // Enhanced error logging with more context
       logNavigationError(navigationError, context, {
         targetScreen: 'Pairing',
-        connectionState: connectionState.isConnected ? 'connected' : 'disconnected'
+        connectionState: connectionState.isConnected ? 'connected' : 'disconnected',
+        deviceName: connectedDevice?.name || null,
+        duration: errorTime,
+        errorType: navigationError.name || 'UnknownError',
+        navigationState: navigation?.getState?.() || 'unavailable',
+        timestamp: new Date().toISOString()
       });
       
+      // Enhanced error handling with more specific retry logic
       handleNavigationError(navigationError, {
         context: 'tela de pareamento',
         allowRetry: true,
         onRetry: () => {
-          logUserInteraction('User requested navigation retry', context);
-          setTimeout(() => handleConnectOBD(), 100);
+          logUserInteraction('User requested navigation retry', context, {
+            retryAttempt: true,
+            originalError: navigationError.message,
+            retryDelay: 500
+          });
+          // Slightly longer delay for retry to ensure state is clean
+          setTimeout(() => handleConnectOBD(), 500);
+        },
+        fallback: () => {
+          logUserInteraction('User chose fallback option', context, {
+            fallbackAction: 'manual_refresh',
+            originalError: navigationError.message
+          });
+          // Could implement a fallback like refreshing the screen or showing alternative options
         }
       });
     } finally {
       setIsNavigating(false);
-      logUserInteraction('Navigation state cleared', context);
+      const totalTime = Date.now() - startTime;
+      logUserInteraction('Navigation state cleared', context, {
+        previousState: 'navigating',
+        newState: 'idle',
+        totalDuration: totalTime
+      });
     }
   }, 300);
 
@@ -129,13 +195,16 @@ export default function DashboardScreen(): React.JSX.Element {
             ]} 
             onPress={handleConnectOBD}
             disabled={connectionState.isConnecting || isNavigating}
-            activeOpacity={0.7}
+            activeOpacity={connectionState.isConnecting || isNavigating ? 1 : 0.7}
           >
             <View style={styles.buttonContent}>
               {(connectionState.isConnecting || isNavigating) && (
                 <ActivityIndicator size="small" color="#333" style={styles.buttonLoader} />
               )}
-              <Text style={styles.secondaryButtonText}>
+              <Text style={[
+                styles.secondaryButtonText,
+                (connectionState.isConnecting || isNavigating) && styles.disabledButtonText
+              ]}>
                 {connectionState.isConnecting 
                   ? 'Conectando...' 
                   : isNavigating 
@@ -150,13 +219,16 @@ export default function DashboardScreen(): React.JSX.Element {
             style={[styles.successButton, isNavigating && styles.disabledButton]} 
             onPress={handleConnectOBD}
             disabled={isNavigating}
-            activeOpacity={0.7}
+            activeOpacity={isNavigating ? 1 : 0.7}
           >
             <View style={styles.buttonContent}>
               {isNavigating && (
                 <ActivityIndicator size="small" color="#2E7D32" style={styles.buttonLoader} />
               )}
-              <Text style={styles.successButtonText}>
+              <Text style={[
+                styles.successButtonText,
+                isNavigating && styles.disabledSuccessButtonText
+              ]}>
                 {isNavigating ? 'Abrindo...' : 'Gerenciar Conexão'}
               </Text>
             </View>
@@ -334,6 +406,12 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.6,
+  },
+  disabledButtonText: {
+    color: '#999',
+  },
+  disabledSuccessButtonText: {
+    color: '#81C784',
   },
   buttonContent: {
     flexDirection: 'row',
