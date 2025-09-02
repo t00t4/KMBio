@@ -2,22 +2,46 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { BLEDevice, BLEConnectionState, BLEError } from '../types/ble';
 import { BLEManager } from '../services/ble/BLEManager';
+import { BluetoothInitializer } from '../services/ble/BluetoothInitializer';
+import {
+  BluetoothInitializationResult,
+  BluetoothInitializationStatus,
+  BluetoothCapabilities,
+  BluetoothInitializationError
+} from '../types/ble/bluetooth-initializer';
+
+interface BLEInitializationState {
+  status: BluetoothInitializationStatus;
+  progress: number; // 0-100
+  error?: BluetoothInitializationError;
+  capabilities?: BluetoothCapabilities;
+  recommendations: string[];
+  isRetrying: boolean;
+  retryCount: number;
+  lastInitializationAttempt?: Date;
+  lastSuccessfulInitialization?: Date;
+}
 
 interface BLEStore {
   // State
   connectionState: BLEConnectionState;
+  initializationState: BLEInitializationState;
   bleManager: BLEManager | null;
+  bluetoothInitializer: BluetoothInitializer | null;
   isInitialized: boolean;
   
   // Actions
-  initialize: () => Promise<void>;
+  initialize: () => Promise<BluetoothInitializationResult>;
+  retryInitialization: () => Promise<BluetoothInitializationResult>;
   scanForDevices: (timeoutMs?: number) => Promise<BLEDevice[]>;
   connectToDevice: (deviceId: string) => Promise<void>;
   disconnect: () => Promise<void>;
   startDataCollection: (frequency: number) => void;
   stopDataCollection: () => void;
   clearError: () => void;
+  clearInitializationError: () => void;
   updateConnectionState: (state: Partial<BLEConnectionState>) => void;
+  updateInitializationState: (state: Partial<BLEInitializationState>) => void;
   cleanup: () => void;
 }
 
@@ -31,50 +55,258 @@ export const useBLEStore = create<BLEStore>()(
       availableDevices: [],
       connectionAttempts: 0
     },
+    initializationState: {
+      status: 'NOT_STARTED',
+      progress: 0,
+      recommendations: [],
+      isRetrying: false,
+      retryCount: 0
+    },
     bleManager: null,
+    bluetoothInitializer: null,
     isInitialized: false,
 
     // Actions
-    initialize: async () => {
-      const { bleManager, isInitialized } = get();
+    initialize: async (): Promise<BluetoothInitializationResult> => {
+      const { bluetoothInitializer, isInitialized } = get();
       
-      if (isInitialized && bleManager) {
-        return;
+      // If already initialized successfully, return success
+      if (isInitialized && bluetoothInitializer) {
+        const capabilities = bluetoothInitializer.getInitializationStatus() === 'COMPLETED_SUCCESS' 
+          ? get().initializationState.capabilities 
+          : undefined;
+        
+        return {
+          success: true,
+          capabilities: capabilities || {
+            bleSupported: true,
+            permissionsGranted: true,
+            bluetoothEnabled: true,
+            canScan: true,
+            canConnect: true
+          },
+          recommendations: ['Sistema Bluetooth já inicializado']
+        };
       }
 
       try {
-        const newBLEManager = new BLEManager();
-        
-        // Set up event listeners
-        newBLEManager.onConnectionStateChange((state) => {
-          set({ connectionState: state });
-        });
+        // Update initialization state to in progress
+        set((state) => ({
+          initializationState: {
+            ...state.initializationState,
+            status: 'IN_PROGRESS',
+            progress: 10,
+            error: undefined,
+            lastInitializationAttempt: new Date(),
+            isRetrying: false
+          }
+        }));
 
-        newBLEManager.onError((error) => {
+        // Create new initializer if needed
+        let initializer = bluetoothInitializer;
+        if (!initializer) {
+          initializer = new BluetoothInitializer();
+          
+          // Set up initialization completion callback
+          initializer.onInitializationComplete((result) => {
+            set((state) => ({
+              initializationState: {
+                ...state.initializationState,
+                status: result.success ? 'COMPLETED_SUCCESS' : 'COMPLETED_ERROR',
+                progress: result.success ? 100 : 0,
+                error: result.error,
+                capabilities: result.capabilities,
+                recommendations: result.recommendations,
+                isRetrying: false,
+                lastSuccessfulInitialization: result.success ? new Date() : state.initializationState.lastSuccessfulInitialization
+              }
+            }));
+          });
+
+          set({ bluetoothInitializer: initializer });
+        }
+
+        // Update progress during initialization
+        set((state) => ({
+          initializationState: {
+            ...state.initializationState,
+            progress: 30
+          }
+        }));
+
+        // Perform initialization
+        const result = await initializer.initialize();
+
+        // Update progress
+        set((state) => ({
+          initializationState: {
+            ...state.initializationState,
+            progress: 60
+          }
+        }));
+
+        if (result.success) {
+          // Create BLE Manager
+          const newBLEManager = new BLEManager();
+          
+          // Set up event listeners
+          newBLEManager.onConnectionStateChange((connectionState) => {
+            set({ connectionState });
+          });
+
+          newBLEManager.onError((error) => {
+            set((state) => ({
+              connectionState: {
+                ...state.connectionState,
+                lastError: error
+              }
+            }));
+          });
+
+          // Final update
           set((state) => ({
-            connectionState: {
-              ...state.connectionState,
-              lastError: error
+            bleManager: newBLEManager,
+            isInitialized: true,
+            initializationState: {
+              ...state.initializationState,
+              status: 'COMPLETED_SUCCESS',
+              progress: 100,
+              capabilities: result.capabilities,
+              recommendations: result.recommendations,
+              lastSuccessfulInitialization: new Date()
             }
           }));
-        });
+        } else {
+          // Handle initialization failure
+          set((state) => ({
+            initializationState: {
+              ...state.initializationState,
+              status: 'COMPLETED_ERROR',
+              progress: 0,
+              error: result.error,
+              capabilities: result.capabilities,
+              recommendations: result.recommendations
+            }
+          }));
+        }
 
-        set({ 
-          bleManager: newBLEManager, 
-          isInitialized: true 
-        });
+        return result;
 
       } catch (error) {
-        const bleError: BLEError = {
+        const initError: BluetoothInitializationError = {
           code: 'UNKNOWN_ERROR',
-          message: `Falha na inicialização do BLE: ${error}`,
-          timestamp: new Date()
+          message: `Falha na inicialização do Bluetooth: ${error}`,
+          technicalDetails: `Unexpected error during initialization: ${error}`,
+          timestamp: new Date(),
+          recoverable: true,
+          recoverySteps: ['Tente novamente', 'Reinicie o aplicativo se o problema persistir'],
+          diagnosticInfo: {
+            deviceModel: 'Unknown',
+            osVersion: 'Unknown',
+            appVersion: '1.0.0',
+            bleLibraryVersion: '3.5.0',
+            initializationAttempts: get().initializationState.retryCount + 1,
+            stateHistory: [],
+            permissionHistory: []
+          }
+        };
+
+        const result: BluetoothInitializationResult = {
+          success: false,
+          error: initError,
+          capabilities: {
+            bleSupported: false,
+            permissionsGranted: false,
+            bluetoothEnabled: false,
+            canScan: false,
+            canConnect: false
+          },
+          recommendations: initError.recoverySteps
         };
 
         set((state) => ({
-          connectionState: {
-            ...state.connectionState,
-            lastError: bleError
+          initializationState: {
+            ...state.initializationState,
+            status: 'COMPLETED_ERROR',
+            progress: 0,
+            error: initError,
+            capabilities: result.capabilities,
+            recommendations: result.recommendations
+          }
+        }));
+        
+        return result;
+      }
+    },
+
+    retryInitialization: async (): Promise<BluetoothInitializationResult> => {
+      const { bluetoothInitializer } = get();
+      
+      if (!bluetoothInitializer) {
+        // If no initializer, create new one and initialize
+        return get().initialize();
+      }
+
+      try {
+        // Update state to show retrying
+        set((state) => ({
+          initializationState: {
+            ...state.initializationState,
+            status: 'RETRYING',
+            progress: 0,
+            isRetrying: true,
+            retryCount: state.initializationState.retryCount + 1,
+            lastInitializationAttempt: new Date()
+          }
+        }));
+
+        const result = await bluetoothInitializer.retry();
+
+        // Update state based on result
+        set((state) => ({
+          initializationState: {
+            ...state.initializationState,
+            status: result.success ? 'COMPLETED_SUCCESS' : 'COMPLETED_ERROR',
+            progress: result.success ? 100 : 0,
+            error: result.error,
+            capabilities: result.capabilities,
+            recommendations: result.recommendations,
+            isRetrying: false,
+            lastSuccessfulInitialization: result.success ? new Date() : state.initializationState.lastSuccessfulInitialization
+          }
+        }));
+
+        if (result.success) {
+          // Create BLE Manager if initialization succeeded
+          const newBLEManager = new BLEManager();
+          
+          newBLEManager.onConnectionStateChange((connectionState) => {
+            set({ connectionState });
+          });
+
+          newBLEManager.onError((error) => {
+            set((state) => ({
+              connectionState: {
+                ...state.connectionState,
+                lastError: error
+              }
+            }));
+          });
+
+          set({ 
+            bleManager: newBLEManager, 
+            isInitialized: true 
+          });
+        }
+
+        return result;
+      } catch (error) {
+        set((state) => ({
+          initializationState: {
+            ...state.initializationState,
+            status: 'COMPLETED_ERROR',
+            progress: 0,
+            isRetrying: false
           }
         }));
         
@@ -83,10 +315,16 @@ export const useBLEStore = create<BLEStore>()(
     },
 
     scanForDevices: async (timeoutMs?: number) => {
-      const { bleManager } = get();
+      const { bleManager, initializationState } = get();
       
-      if (!bleManager) {
-        throw new Error('BLE Manager não inicializado');
+      // Check if initialization is complete and successful
+      if (initializationState.status !== 'COMPLETED_SUCCESS' || !bleManager) {
+        throw new Error('Sistema Bluetooth não inicializado. Execute a inicialização primeiro.');
+      }
+
+      // Check if we have scanning capabilities
+      if (!initializationState.capabilities?.canScan) {
+        throw new Error('Não é possível escanear dispositivos. Verifique as permissões e o estado do Bluetooth.');
       }
 
       try {
@@ -121,10 +359,16 @@ export const useBLEStore = create<BLEStore>()(
     },
 
     connectToDevice: async (deviceId: string) => {
-      const { bleManager } = get();
+      const { bleManager, initializationState } = get();
       
-      if (!bleManager) {
-        throw new Error('BLE Manager não inicializado');
+      // Check if initialization is complete and successful
+      if (initializationState.status !== 'COMPLETED_SUCCESS' || !bleManager) {
+        throw new Error('Sistema Bluetooth não inicializado. Execute a inicialização primeiro.');
+      }
+
+      // Check if we have connection capabilities
+      if (!initializationState.capabilities?.canConnect) {
+        throw new Error('Não é possível conectar a dispositivos. Verifique as permissões e o estado do Bluetooth.');
       }
 
       try {
@@ -175,13 +419,14 @@ export const useBLEStore = create<BLEStore>()(
     },
 
     startDataCollection: (frequency: number) => {
-      const { bleManager } = get();
+      const { bleManager, initializationState, connectionState } = get();
       
-      if (!bleManager) {
-        throw new Error('BLE Manager não inicializado');
+      // Check if initialization is complete and successful
+      if (initializationState.status !== 'COMPLETED_SUCCESS' || !bleManager) {
+        throw new Error('Sistema Bluetooth não inicializado');
       }
 
-      if (!get().connectionState.isConnected) {
+      if (!connectionState.isConnected) {
         throw new Error('Dispositivo não conectado');
       }
 
@@ -205,6 +450,15 @@ export const useBLEStore = create<BLEStore>()(
       }));
     },
 
+    clearInitializationError: () => {
+      set((state) => ({
+        initializationState: {
+          ...state.initializationState,
+          error: undefined
+        }
+      }));
+    },
+
     updateConnectionState: (newState: Partial<BLEConnectionState>) => {
       set((state) => ({
         connectionState: {
@@ -214,15 +468,29 @@ export const useBLEStore = create<BLEStore>()(
       }));
     },
 
+    updateInitializationState: (newState: Partial<BLEInitializationState>) => {
+      set((state) => ({
+        initializationState: {
+          ...state.initializationState,
+          ...newState
+        }
+      }));
+    },
+
     cleanup: () => {
-      const { bleManager } = get();
+      const { bleManager, bluetoothInitializer } = get();
       
       if (bleManager) {
         bleManager.destroy();
       }
 
+      if (bluetoothInitializer) {
+        bluetoothInitializer.destroy();
+      }
+
       set({
         bleManager: null,
+        bluetoothInitializer: null,
         isInitialized: false,
         connectionState: {
           isScanning: false,
@@ -230,6 +498,13 @@ export const useBLEStore = create<BLEStore>()(
           isConnected: false,
           availableDevices: [],
           connectionAttempts: 0
+        },
+        initializationState: {
+          status: 'NOT_STARTED',
+          progress: 0,
+          recommendations: [],
+          isRetrying: false,
+          retryCount: 0
         }
       });
     }
@@ -238,8 +513,15 @@ export const useBLEStore = create<BLEStore>()(
 
 // Selectors for easier state access
 export const useBLEConnectionState = () => useBLEStore(state => state.connectionState);
+export const useBLEInitializationState = () => useBLEStore(state => state.initializationState);
 export const useBLEIsConnected = () => useBLEStore(state => state.connectionState.isConnected);
 export const useBLEIsScanning = () => useBLEStore(state => state.connectionState.isScanning);
 export const useBLEAvailableDevices = () => useBLEStore(state => state.connectionState.availableDevices);
 export const useBLEError = () => useBLEStore(state => state.connectionState.lastError);
+export const useBLEInitializationError = () => useBLEStore(state => state.initializationState.error);
 export const useBLEConnectedDevice = () => useBLEStore(state => state.connectionState.connectedDevice);
+export const useBLEIsInitialized = () => useBLEStore(state => state.isInitialized);
+export const useBLEInitializationStatus = () => useBLEStore(state => state.initializationState.status);
+export const useBLEInitializationProgress = () => useBLEStore(state => state.initializationState.progress);
+export const useBLECapabilities = () => useBLEStore(state => state.initializationState.capabilities);
+export const useBLERecommendations = () => useBLEStore(state => state.initializationState.recommendations);

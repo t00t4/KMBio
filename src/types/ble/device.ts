@@ -34,6 +34,7 @@ export interface BLEConnectionState {
   connectionAttempts: number;
   lastConnectionTime?: Date;
   signalStrength?: number;
+  initializationStatus?: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED_SUCCESS' | 'COMPLETED_ERROR' | 'RETRYING';
 }
 
 export interface BLEError {

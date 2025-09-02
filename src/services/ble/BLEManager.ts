@@ -5,15 +5,19 @@ import {
   BLEError as AppBLEError, 
   BLEErrorCode,
   BLEConfiguration,
-  BLEServiceInterface 
+  BLEServiceInterface,
+  BluetoothInitializationResult,
+  BluetoothInitializationStatus
 } from '../../types/ble';
 import { PermissionsManager } from '../../utils/permissions';
+import { BluetoothInitializer } from './BluetoothInitializer';
 
 // For development mode detection
 declare const __DEV__: boolean;
 
 export class BLEManager implements BLEServiceInterface {
-  private bleManager: BleManager;
+  private bleManager: BleManager | null = null;
+  private bluetoothInitializer: BluetoothInitializer;
   private connectionState: BLEConnectionState;
   private config: BLEConfiguration;
   private reconnectTimer?: NodeJS.Timeout;
@@ -21,9 +25,10 @@ export class BLEManager implements BLEServiceInterface {
   private connectionStateCallbacks: ((state: BLEConnectionState) => void)[] = [];
   private dataReceivedCallbacks: ((data: any) => void)[] = [];
   private errorCallbacks: ((error: AppBLEError) => void)[] = [];
+  private initializationResult: BluetoothInitializationResult | null = null;
 
   constructor(config?: Partial<BLEConfiguration>) {
-    this.bleManager = new BleManager();
+    this.bluetoothInitializer = new BluetoothInitializer();
     this.config = {
       scanTimeoutMs: 10000,
       connectionTimeoutMs: 5000,
@@ -38,28 +43,46 @@ export class BLEManager implements BLEServiceInterface {
       isConnecting: false,
       isConnected: false,
       availableDevices: [],
-      connectionAttempts: 0
+      connectionAttempts: 0,
+      initializationStatus: 'NOT_STARTED'
     };
 
+    // Set up initialization callback
+    this.bluetoothInitializer.onInitializationComplete((result) => {
+      this.handleInitializationComplete(result);
+    });
+
+    // Start initialization automatically
     this.initializeBLE();
   }
 
   private async initializeBLE(): Promise<void> {
     try {
-      // Check and request permissions
-      const permissionResult = await PermissionsManager.checkBLEPermissions();
-      if (!permissionResult.granted) {
-        const requestResult = await PermissionsManager.requestBLEPermissions();
-        if (!requestResult.granted) {
+      this.connectionState.initializationStatus = 'IN_PROGRESS';
+      this.emitConnectionStateChange();
+
+      // Use BluetoothInitializer for robust initialization
+      const result = await this.bluetoothInitializer.initialize();
+      
+      if (!result.success) {
+        // Handle initialization failure
+        this.connectionState.initializationStatus = 'COMPLETED_ERROR';
+        this.emitConnectionStateChange();
+        
+        if (result.error) {
           this.emitError({
-            code: 'PERMISSION_DENIED',
-            message: 'BLE permissions not granted',
-            timestamp: new Date()
+            code: this.mapInitializationErrorCode(result.error.code),
+            message: result.error.message,
+            timestamp: new Date(),
+            context: result.error
           });
-          return;
         }
+        return;
       }
 
+      // Initialization successful - create BLE Manager
+      this.bleManager = new BleManager();
+      
       // Monitor Bluetooth state changes
       this.bleManager.onStateChange((state) => {
         this.handleBluetoothStateChange(state);
@@ -69,7 +92,13 @@ export class BLEManager implements BLEServiceInterface {
       const state = await this.bleManager.state();
       this.handleBluetoothStateChange(state);
 
+      this.connectionState.initializationStatus = 'COMPLETED_SUCCESS';
+      this.emitConnectionStateChange();
+
     } catch (error) {
+      this.connectionState.initializationStatus = 'COMPLETED_ERROR';
+      this.emitConnectionStateChange();
+      
       this.emitError({
         code: 'UNKNOWN_ERROR',
         message: `BLE initialization failed: ${error}`,
@@ -111,6 +140,13 @@ export class BLEManager implements BLEServiceInterface {
     const timeout = timeoutMs || this.config.scanTimeoutMs;
     
     try {
+      // Ensure Bluetooth is initialized
+      await this.ensureInitialized();
+      
+      if (!this.bleManager) {
+        throw new Error('BLE Manager não inicializado');
+      }
+
       // Check Bluetooth state
       const state = await this.bleManager.state();
       if (state !== 'PoweredOn') {
@@ -159,7 +195,7 @@ export class BLEManager implements BLEServiceInterface {
       // Stop scanning after timeout
       return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
-          this.bleManager.stopDeviceScan();
+          this.bleManager?.stopDeviceScan();
           this.connectionState.isScanning = false;
           this.emitConnectionStateChange();
           
@@ -190,6 +226,13 @@ export class BLEManager implements BLEServiceInterface {
 
   async connectToDevice(deviceId: string): Promise<void> {
     try {
+      // Ensure Bluetooth is initialized
+      await this.ensureInitialized();
+      
+      if (!this.bleManager) {
+        throw new Error('BLE Manager não inicializado');
+      }
+
       this.connectionState.isConnecting = true;
       this.connectionState.connectionAttempts++;
       this.emitConnectionStateChange();
@@ -247,7 +290,7 @@ export class BLEManager implements BLEServiceInterface {
 
   async disconnect(): Promise<void> {
     try {
-      if (this.connectionState.connectedDevice) {
+      if (this.connectionState.connectedDevice && this.bleManager) {
         await this.bleManager.cancelDeviceConnection(this.connectionState.connectedDevice.id);
       }
       
@@ -278,6 +321,10 @@ export class BLEManager implements BLEServiceInterface {
   async sendCommand(command: string): Promise<string> {
     if (!this.connectionState.isConnected || !this.connectionState.connectedDevice) {
       throw new Error('Dispositivo não conectado');
+    }
+
+    if (!this.bleManager) {
+      throw new Error('BLE Manager não inicializado');
     }
 
     try {
@@ -513,13 +560,111 @@ export class BLEManager implements BLEServiceInterface {
     this.errorCallbacks.forEach(callback => callback(error));
   }
 
+  // New methods for initialization handling
+
+  private async ensureInitialized(): Promise<void> {
+    const status = this.bluetoothInitializer.getInitializationStatus();
+    
+    if (status === 'NOT_STARTED' || status === 'COMPLETED_ERROR') {
+      await this.initializeBLE();
+    } else if (status === 'IN_PROGRESS' || status === 'RETRYING') {
+      // Wait for initialization to complete
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Initialization timeout'));
+        }, 15000);
+
+        const checkStatus = () => {
+          const currentStatus = this.bluetoothInitializer.getInitializationStatus();
+          if (currentStatus === 'COMPLETED_SUCCESS') {
+            clearTimeout(timeout);
+            resolve();
+          } else if (currentStatus === 'COMPLETED_ERROR') {
+            clearTimeout(timeout);
+            reject(new Error('Initialization failed'));
+          } else {
+            setTimeout(checkStatus, 500);
+          }
+        };
+
+        checkStatus();
+      });
+    }
+  }
+
+  private handleInitializationComplete(result: BluetoothInitializationResult): void {
+    this.initializationResult = result;
+    
+    if (result.success) {
+      this.connectionState.initializationStatus = 'COMPLETED_SUCCESS';
+    } else {
+      this.connectionState.initializationStatus = 'COMPLETED_ERROR';
+      
+      if (result.error) {
+        this.emitError({
+          code: this.mapInitializationErrorCode(result.error.code),
+          message: result.error.message,
+          timestamp: new Date(),
+          context: result.error
+        });
+      }
+    }
+    
+    this.emitConnectionStateChange();
+  }
+
+  private mapInitializationErrorCode(initCode: string): BLEErrorCode {
+    switch (initCode) {
+      case 'BLUETOOTH_DISABLED':
+        return 'BLUETOOTH_DISABLED';
+      case 'PERMISSIONS_DENIED':
+      case 'PERMISSIONS_NEVER_ASK_AGAIN':
+        return 'PERMISSION_DENIED';
+      case 'BLUETOOTH_NOT_SUPPORTED':
+      case 'BLE_MANAGER_INIT_FAILED':
+      case 'STATE_MONITORING_FAILED':
+      case 'TIMEOUT_ERROR':
+      default:
+        return 'UNKNOWN_ERROR';
+    }
+  }
+
+  // Public methods for initialization control
+
+  async retryInitialization(): Promise<BluetoothInitializationResult> {
+    this.connectionState.initializationStatus = 'RETRYING';
+    this.emitConnectionStateChange();
+    
+    const result = await this.bluetoothInitializer.retry();
+    this.handleInitializationComplete(result);
+    
+    return result;
+  }
+
+  getInitializationStatus(): BluetoothInitializationStatus {
+    return this.bluetoothInitializer.getInitializationStatus();
+  }
+
+  getInitializationResult(): BluetoothInitializationResult | null {
+    return this.initializationResult;
+  }
+
   // Cleanup method
   destroy(): void {
     this.stopDataCollection();
     this.clearReconnectTimer();
     this.disconnect();
+    
+    // Cleanup initializer
+    this.bluetoothInitializer.destroy();
+    
+    // Clear callbacks
     this.connectionStateCallbacks = [];
     this.dataReceivedCallbacks = [];
     this.errorCallbacks = [];
+    
+    // Reset state
+    this.bleManager = null;
+    this.initializationResult = null;
   }
 }
