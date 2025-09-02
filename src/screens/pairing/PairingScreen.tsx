@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  FlatList, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
   Alert,
   ActivityIndicator,
   RefreshControl
@@ -147,7 +147,7 @@ export default function PairingScreen(): React.JSX.Element {
 
       // Test basic OBD-II communication
       await obdService.initialize();
-      
+
       // Validate that we can communicate with the vehicle
       const isValid = await obdService.validateConnection();
       if (!isValid) {
@@ -187,7 +187,7 @@ export default function PairingScreen(): React.JSX.Element {
     const isELM = isELM327Device(item);
     const signalColor = getSignalStrengthColor(item.rssi);
     const signalText = getSignalStrengthText(item.rssi);
-    
+
     return (
       <TouchableOpacity
         style={[
@@ -200,10 +200,10 @@ export default function PairingScreen(): React.JSX.Element {
       >
         <View style={styles.deviceInfo}>
           <View style={styles.deviceIcon}>
-            <Icon 
-              name={isELM ? "directions-car" : "bluetooth"} 
-              size={24} 
-              color={isELM ? "#2E7D32" : "#666"} 
+            <Icon
+              name={isELM ? "directions-car" : "bluetooth"}
+              size={24}
+              color={isELM ? "#2E7D32" : "#666"}
             />
             {isELM && (
               <View style={styles.elm327Badge}>
@@ -272,7 +272,7 @@ export default function PairingScreen(): React.JSX.Element {
           <Text style={styles.emptySubtext}>
             Toque em "Buscar Dispositivos" para começar
           </Text>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.helpButton}
             onPress={() => setShowHelpModal(true)}
           >
@@ -286,10 +286,10 @@ export default function PairingScreen(): React.JSX.Element {
     const sortedDevices = [...connectionState.availableDevices].sort((a, b) => {
       const aIsELM = isELM327Device(a);
       const bIsELM = isELM327Device(b);
-      
+
       if (aIsELM && !bIsELM) return -1;
       if (!aIsELM && bIsELM) return 1;
-      
+
       // Sort by signal strength
       return b.rssi - a.rssi;
     });
@@ -309,8 +309,8 @@ export default function PairingScreen(): React.JSX.Element {
         }
         ListHeaderComponent={() => (
           <Text style={styles.deviceListHeader}>
-            {sortedDevices.filter(isELM327Device).length > 0 
-              ? 'Dispositivos ELM327 encontrados:' 
+            {sortedDevices.filter(isELM327Device).length > 0
+              ? 'Dispositivos ELM327 encontrados:'
               : 'Dispositivos Bluetooth encontrados:'}
           </Text>
         )}
@@ -351,7 +351,7 @@ export default function PairingScreen(): React.JSX.Element {
         {selectedDevice && (
           <TouchableOpacity
             style={[
-              styles.button, 
+              styles.button,
               styles.primaryButton,
               (connectionState.isConnecting || isTestingConnection) && styles.disabledButton
             ]}
@@ -372,7 +372,7 @@ export default function PairingScreen(): React.JSX.Element {
         )}
       </View>
 
-      <ELM327HelpModal 
+      <ELM327HelpModal
         visible={showHelpModal}
         onClose={() => setShowHelpModal(false)}
       />

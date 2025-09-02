@@ -471,17 +471,23 @@ export const useAuthStore = create<AuthStore>()(
 );
 
 // Set up auth state listener
-supabase.auth.onAuthStateChange((event) => {
+supabase.auth.onAuthStateChange((event, session) => {
+  console.log('🔍 Auth state change detected:', { event, hasSession: !!session });
+  
   const { initialize } = useAuthStore.getState();
 
   if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+    console.log('✅ User signed in or token refreshed, initializing...');
     initialize();
   } else if (event === 'SIGNED_OUT') {
+    console.log('🚪 User signed out, clearing auth state...');
     useAuthStore.setState({
       user: null,
       isAuthenticated: false,
       isLoading: false,
+      hasCompletedOnboarding: false,
       error: null
     });
+    console.log('✅ Auth state cleared after sign out');
   }
 });

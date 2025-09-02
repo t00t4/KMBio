@@ -1,8 +1,102 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useAuthStore } from '../../stores/auth';
+import { handleAuthError, debounceNavigation } from '../../utils/navigationErrorHandler';
+import { logButtonPress, logAuthEvent, logAuthError, logUserInteraction } from '../../utils/debugLogger';
 
 export default function SettingsMainScreen({ navigation }: any): React.JSX.Element {
+  const { signOut, user, isLoading, isAuthenticated } = useAuthStore();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // Debug logging for auth state
+  React.useEffect(() => {
+    console.log('🔍 SettingsScreen - Auth state check:', {
+      isAuthenticated,
+      hasUser: !!user,
+      userEmail: user?.email,
+      isLoading,
+      hasSignOutFunction: typeof signOut === 'function'
+    });
+  }, [isAuthenticated, user, isLoading, signOut]);
+  const handleLogout = async () => {
+    const context = { screen: 'Settings', component: 'LogoutButton' };
+    
+    logButtonPress('Logout', context, {
+      isAuthenticated,
+      hasUser: !!user,
+      userEmail: user?.email,
+      isLoading,
+      isLoggingOut
+    });
+    
+    // Prevent multiple logout attempts
+    if (isLoggingOut || isLoading) {
+      logUserInteraction('Duplicate logout attempt blocked', context);
+      return;
+    }
+
+    logUserInteraction('Showing logout confirmation dialog', context);
+    
+    Alert.alert(
+      'Sair da Conta',
+      'Tem certeza que deseja sair da sua conta? Você precisará fazer login novamente.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+          onPress: () => {
+            logUserInteraction('User cancelled logout', context);
+          }
+        },
+        {
+          text: 'Sair',
+          style: 'destructive',
+          onPress: async () => {
+            logUserInteraction('User confirmed logout', context);
+            logAuthEvent('Logout initiated', context);
+            
+            try {
+              setIsLoggingOut(true);
+              logUserInteraction('Logout loading state set', context);
+              
+              // Verify auth store is available
+              if (!signOut) {
+                throw new Error('Auth store signOut function not available');
+              }
+
+              logAuthEvent('Calling signOut function', context);
+              await signOut();
+              logAuthEvent('SignOut completed successfully', context);
+              
+              // The auth store should handle navigation automatically
+              // via the auth state listener in the navigation container
+              
+            } catch (error) {
+              const authError = error instanceof Error ? error : new Error(String(error));
+              
+              logAuthError(authError, context, {
+                operation: 'logout',
+                hasSignOutFunction: typeof signOut === 'function'
+              });
+              
+              handleAuthError(authError, {
+                allowRetry: true,
+                onRetry: () => {
+                  logUserInteraction('User requested logout retry', context);
+                  setTimeout(() => handleLogout(), 100);
+                }
+              });
+            } finally {
+              setIsLoggingOut(false);
+              logUserInteraction('Logout loading state cleared', context);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const settingsOptions = [
     {
       title: 'Gerenciar Veículos',
@@ -61,8 +155,8 @@ export default function SettingsMainScreen({ navigation }: any): React.JSX.Eleme
             <Icon name="person" size={32} color="#fff" />
           </View>
           <View style={styles.userDetails}>
-            <Text style={styles.userName}>João Silva</Text>
-            <Text style={styles.userEmail}>joao.silva@email.com</Text>
+            <Text style={styles.userName}>{user?.name || 'Usuário'}</Text>
+            <Text style={styles.userEmail}>{user?.email || 'email@exemplo.com'}</Text>
           </View>
         </View>
       </View>
@@ -76,17 +170,35 @@ export default function SettingsMainScreen({ navigation }: any): React.JSX.Eleme
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Ações Rápidas</Text>
         
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => {
+            console.log('Sync button pressed');
+            Alert.alert('Sincronizar', 'Funcionalidade em desenvolvimento');
+          }}
+        >
           <Icon name="sync" size={20} color="#2E7D32" />
           <Text style={styles.actionText}>Sincronizar Dados</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => {
+            console.log('Backup button pressed');
+            Alert.alert('Backup', 'Funcionalidade em desenvolvimento');
+          }}
+        >
           <Icon name="backup" size={20} color="#2E7D32" />
           <Text style={styles.actionText}>Fazer Backup</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => {
+            console.log('Help button pressed');
+            Alert.alert('Ajuda', 'Funcionalidade em desenvolvimento');
+          }}
+        >
           <Icon name="help" size={20} color="#2E7D32" />
           <Text style={styles.actionText}>Central de Ajuda</Text>
         </TouchableOpacity>
@@ -94,9 +206,24 @@ export default function SettingsMainScreen({ navigation }: any): React.JSX.Eleme
 
       {/* Logout */}
       <View style={styles.card}>
-        <TouchableOpacity style={styles.logoutButton}>
-          <Icon name="logout" size={20} color="#F44336" />
-          <Text style={styles.logoutText}>Sair da Conta</Text>
+        <TouchableOpacity 
+          style={[
+            styles.logoutButton,
+            (isLoggingOut || isLoading) && styles.disabledButton
+          ]}
+          onPress={handleLogout}
+          disabled={isLoggingOut || isLoading}
+          activeOpacity={0.7}
+        >
+          <View style={styles.logoutContent}>
+            {(isLoggingOut || isLoading) && (
+              <ActivityIndicator size="small" color="#F44336" style={styles.logoutLoader} />
+            )}
+            <Icon name="logout" size={20} color="#F44336" />
+            <Text style={styles.logoutText}>
+              {isLoggingOut ? 'Saindo...' : 'Sair da Conta'}
+            </Text>
+          </View>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -219,5 +346,16 @@ const styles = StyleSheet.create({
     color: '#F44336',
     fontWeight: '500',
     marginLeft: 8,
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  logoutContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutLoader: {
+    marginRight: 8,
   },
 });

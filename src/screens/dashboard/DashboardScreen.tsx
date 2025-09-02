@@ -1,17 +1,109 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useNavigation } from '@react-navigation/native';
+import type { StackNavigationProp } from '@react-navigation/stack';
+import type { RootStackParamList } from '../../navigation/types';
+import { useBLEConnectionState, useBLEConnectedDevice } from '../../stores/ble';
+import BLETestComponent from '../../components/common/BLETestComponent';
+import { handleNavigationError, debounceNavigation } from '../../utils/navigationErrorHandler';
+import { logButtonPress, logNavigation, logNavigationError, logUserInteraction } from '../../utils/debugLogger';
+
+type NavigationProp = StackNavigationProp<RootStackParamList>;
 
 export default function DashboardScreen(): React.JSX.Element {
+  const navigation = useNavigation<NavigationProp>();
+  const connectionState = useBLEConnectionState();
+  const connectedDevice = useBLEConnectedDevice();
+  const [isNavigating, setIsNavigating] = useState(false);
   const handleStartTrip = () => {
-    // TODO: Navigate to pairing if not connected, or start trip
-    console.log('Start trip pressed');
+    if (!connectionState.isConnected) {
+      // Navigate to pairing if not connected
+      navigation.navigate('Pairing');
+    } else {
+      // TODO: Start trip functionality
+      console.log('Start trip pressed');
+    }
   };
 
-  const handleConnectOBD = () => {
-    // TODO: Navigate to pairing screen
-    console.log('Connect OBD pressed');
+  const handleConnectOBD = debounceNavigation(async () => {
+    const context = { screen: 'Dashboard', component: 'ConnectOBDButton' };
+    
+    logButtonPress('Connect OBD Device', context, {
+      connectionState: connectionState.isConnected ? 'connected' : 'disconnected',
+      isConnecting: connectionState.isConnecting,
+      connectedDevice: connectedDevice?.name || null
+    });
+    
+    // Prevent multiple simultaneous navigation attempts
+    if (isNavigating) {
+      logUserInteraction('Duplicate navigation attempt blocked', context);
+      return;
+    }
+    
+    try {
+      setIsNavigating(true);
+      logUserInteraction('Navigation state set to loading', context);
+      
+      // Check if navigation is available
+      if (!navigation) {
+        throw new Error('Navigation object not available');
+      }
+
+      // Small delay to show loading state
+      await new Promise(resolve => setTimeout(resolve, 150));
+
+      // Navigate to pairing screen
+      logNavigation('Dashboard', 'Pairing', context);
+      navigation.navigate('Pairing');
+      logUserInteraction('Navigation completed successfully', context);
+      
+    } catch (error) {
+      const navigationError = error instanceof Error ? error : new Error(String(error));
+      
+      logNavigationError(navigationError, context, {
+        targetScreen: 'Pairing',
+        connectionState: connectionState.isConnected ? 'connected' : 'disconnected'
+      });
+      
+      handleNavigationError(navigationError, {
+        context: 'tela de pareamento',
+        allowRetry: true,
+        onRetry: () => {
+          logUserInteraction('User requested navigation retry', context);
+          setTimeout(() => handleConnectOBD(), 100);
+        }
+      });
+    } finally {
+      setIsNavigating(false);
+      logUserInteraction('Navigation state cleared', context);
+    }
+  }, 300);
+
+  // Get connection status info
+  const getConnectionStatus = () => {
+    if (connectionState.isConnecting) {
+      return {
+        text: 'Conectando...',
+        color: '#FF9800',
+        icon: 'bluetooth-searching'
+      };
+    } else if (connectionState.isConnected && connectedDevice) {
+      return {
+        text: `Conectado: ${connectedDevice.name || 'Dispositivo OBD-II'}`,
+        color: '#4CAF50',
+        icon: 'bluetooth-connected'
+      };
+    } else {
+      return {
+        text: 'Dispositivo OBD-II não conectado',
+        color: '#666',
+        icon: 'bluetooth-disabled'
+      };
+    }
   };
+
+  const connectionStatus = getConnectionStatus();
 
   return (
     <ScrollView style={styles.container}>
@@ -23,13 +115,53 @@ export default function DashboardScreen(): React.JSX.Element {
       {/* Connection Status */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Icon name="bluetooth" size={24} color="#666" />
+          <Icon name={connectionStatus.icon} size={24} color={connectionStatus.color} />
           <Text style={styles.cardTitle}>Status da Conexão</Text>
         </View>
-        <Text style={styles.statusText}>Dispositivo OBD-II não conectado</Text>
-        <TouchableOpacity style={styles.secondaryButton} onPress={handleConnectOBD}>
-          <Text style={styles.secondaryButtonText}>Conectar Dispositivo</Text>
-        </TouchableOpacity>
+        <Text style={[styles.statusText, { color: connectionStatus.color }]}>
+          {connectionStatus.text}
+        </Text>
+        {!connectionState.isConnected && (
+          <TouchableOpacity 
+            style={[
+              styles.secondaryButton,
+              (connectionState.isConnecting || isNavigating) && styles.disabledButton
+            ]} 
+            onPress={handleConnectOBD}
+            disabled={connectionState.isConnecting || isNavigating}
+            activeOpacity={0.7}
+          >
+            <View style={styles.buttonContent}>
+              {(connectionState.isConnecting || isNavigating) && (
+                <ActivityIndicator size="small" color="#333" style={styles.buttonLoader} />
+              )}
+              <Text style={styles.secondaryButtonText}>
+                {connectionState.isConnecting 
+                  ? 'Conectando...' 
+                  : isNavigating 
+                    ? 'Abrindo...' 
+                    : 'Conectar Dispositivo'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+        {connectionState.isConnected && (
+          <TouchableOpacity 
+            style={[styles.successButton, isNavigating && styles.disabledButton]} 
+            onPress={handleConnectOBD}
+            disabled={isNavigating}
+            activeOpacity={0.7}
+          >
+            <View style={styles.buttonContent}>
+              {isNavigating && (
+                <ActivityIndicator size="small" color="#2E7D32" style={styles.buttonLoader} />
+              )}
+              <Text style={styles.successButtonText}>
+                {isNavigating ? 'Abrindo...' : 'Gerenciar Conexão'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Current Trip */}
@@ -77,6 +209,40 @@ export default function DashboardScreen(): React.JSX.Element {
           Conecte seu dispositivo OBD-II e faça algumas viagens para receber dicas personalizadas
         </Text>
       </View>
+
+      {/* Debug Component - Remove in production */}
+      <View style={styles.debugContainer}>
+        <Text style={styles.debugTitle}>🔧 Debug - Teste de Botões</Text>
+        
+        <TouchableOpacity 
+          style={styles.debugButton} 
+          onPress={() => {
+            console.log('DEBUG: Simple button pressed!');
+            Alert.alert('Debug', 'Botão simples funcionou!');
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.debugButtonText}>Teste Botão Simples</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.debugButton} 
+          onPress={() => {
+            console.log('DEBUG: Navigation test button pressed!');
+            try {
+              navigation.navigate('Pairing');
+              Alert.alert('Debug', 'Navegação iniciada!');
+            } catch (error) {
+              console.error('DEBUG Navigation error:', error);
+              Alert.alert('Erro', `Navegação falhou: ${error}`);
+            }
+          }}
+        >
+          <Text style={styles.debugButtonText}>Teste Navegação</Text>
+        </TouchableOpacity>
+      </View>
+
+      <BLETestComponent />
     </ScrollView>
   );
 }
@@ -151,6 +317,59 @@ const styles = StyleSheet.create({
     color: '#333',
     fontSize: 16,
     fontWeight: '500',
+  },
+  successButton: {
+    backgroundColor: '#E8F5E8',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+  },
+  successButtonText: {
+    color: '#2E7D32',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonLoader: {
+    marginRight: 8,
+  },
+  debugContainer: {
+    backgroundColor: '#FFF3E0',
+    margin: 16,
+    padding: 20,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#FF9800',
+  },
+  debugTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#E65100',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  debugButton: {
+    backgroundColor: '#FF9800',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  debugButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   statsGrid: {
     flexDirection: 'row',
