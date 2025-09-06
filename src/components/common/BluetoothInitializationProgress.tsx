@@ -77,6 +77,7 @@ export const BluetoothInitializationProgress: React.FC<BluetoothInitializationPr
             size="large" 
             color={getStatusColor()} 
             style={styles.spinner}
+            testID="activity-indicator"
           />
         )}
         

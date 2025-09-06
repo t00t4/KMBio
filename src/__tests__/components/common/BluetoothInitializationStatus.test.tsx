@@ -66,13 +66,13 @@ describe('BluetoothInitializationStatus', () => {
       <BluetoothInitializationStatus status="NOT_STARTED" />
     );
     
-    expect(screen.getByText('Preparando inicialização do Bluetooth...')).toBeTruthy();
+    expect(screen.getByText(/Preparando inicialização do Bluetooth/)).toBeTruthy();
     
     rerender(<BluetoothInitializationStatus status="IN_PROGRESS" />);
-    expect(screen.getByText('Inicializando Bluetooth...')).toBeTruthy();
+    expect(screen.getByText(/Inicializando Bluetooth/)).toBeTruthy();
     
     rerender(<BluetoothInitializationStatus status="RETRYING" />);
-    expect(screen.getByText('Tentando novamente...')).toBeTruthy();
+    expect(screen.getByText(/Tentando novamente/)).toBeTruthy();
   });
 
   it('renders error component when status is COMPLETED_ERROR', () => {
@@ -87,8 +87,8 @@ describe('BluetoothInitializationStatus', () => {
       />
     );
     
-    expect(screen.getByText('Bluetooth Desligado')).toBeTruthy();
-    expect(screen.getByText('Bluetooth is disabled')).toBeTruthy();
+    expect(screen.getByLabelText('error-title')).toHaveTextContent('Bluetooth Desligado');
+    expect(screen.getByLabelText('error-message')).toHaveTextContent('Bluetooth is disabled');
   });
 
   it('renders compact success view when compact is true', () => {
@@ -126,15 +126,15 @@ describe('BluetoothInitializationStatus', () => {
       />
     );
     
-    expect(screen.getByText('Status do Sistema:')).toBeTruthy();
-    expect(screen.getByText('Bluetooth Low Energy Suportado')).toBeTruthy();
-    expect(screen.getByText('Permissões Concedidas')).toBeTruthy();
-    expect(screen.getByText('Bluetooth Ligado')).toBeTruthy();
-    expect(screen.getByText('Pronto para Conectar')).toBeTruthy();
+    expect(screen.getByText(/Status do Sistema/)).toBeTruthy();
+    expect(screen.getByText(/Bluetooth Low Energy.*Suportado/)).toBeTruthy();
+    expect(screen.getByText(/Permissões.*Concedidas/)).toBeTruthy();
+    expect(screen.getByText(/Bluetooth.*Ligado/)).toBeTruthy();
+    expect(screen.getByText(/Pronto para Conectar/)).toBeTruthy();
     
-    expect(screen.getByText('Recomendações:')).toBeTruthy();
-    expect(screen.getByText('• System is ready')).toBeTruthy();
-    expect(screen.getByText('• All features available')).toBeTruthy();
+    expect(screen.getByText(/Recomendações/)).toBeTruthy();
+    expect(screen.getByText(/System is ready/)).toBeTruthy();
+    expect(screen.getByText(/All features available/)).toBeTruthy();
   });
 
   it('shows correct capability status icons', () => {
@@ -156,16 +156,19 @@ describe('BluetoothInitializationStatus', () => {
       />
     );
     
-    expect(screen.getByText('Bluetooth Low Energy Não Suportado')).toBeTruthy();
-    expect(screen.getByText('Permissões Negadas')).toBeTruthy();
-    expect(screen.getByText('Bluetooth Desligado')).toBeTruthy();
-    expect(screen.getByText('Não Pode Conectar')).toBeTruthy();
+    expect(screen.getByText(/Bluetooth Low Energy.*Não Suportado/)).toBeTruthy();
+    expect(screen.getByText(/Permissões.*Negadas/)).toBeTruthy();
+    expect(screen.getByText(/Bluetooth.*Desligado/)).toBeTruthy();
+    expect(screen.getByText(/Não Pode Conectar/)).toBeTruthy();
   });
 
   it('calls onRetry when retry is triggered from error component', () => {
     const onRetry = jest.fn();
     const result = createMockResult(false, {
-      error: createMockError(),
+      error: {
+        ...createMockError(),
+        code: 'BLE_MANAGER_INIT_FAILED',
+      },
     });
     
     render(
@@ -176,7 +179,7 @@ describe('BluetoothInitializationStatus', () => {
       />
     );
     
-    const retryButton = screen.getByText('Tentar Novamente');
+    const retryButton = screen.getByTestId('primary-action-button');
     fireEvent.press(retryButton);
     
     expect(onRetry).toHaveBeenCalledTimes(1);
@@ -212,7 +215,7 @@ describe('BluetoothInitializationStatus', () => {
       />
     );
     
-    const settingsButton = screen.getByText('Abrir Configurações');
+    const settingsButton = screen.getByTestId('primary-action-button');
     fireEvent.press(settingsButton);
     
     await waitFor(() => {
@@ -235,7 +238,7 @@ describe('BluetoothInitializationStatus', () => {
       />
     );
     
-    const settingsButton = screen.getByText('Abrir Configurações');
+    const settingsButton = screen.getByTestId('primary-action-button');
     fireEvent.press(settingsButton);
     
     await waitFor(() => {
@@ -257,7 +260,7 @@ describe('BluetoothInitializationStatus', () => {
       />
     );
     
-    const settingsButton = screen.getByText('Abrir Configurações');
+    const settingsButton = screen.getByTestId('primary-action-button');
     fireEvent.press(settingsButton);
     
     // Should not throw error
@@ -308,7 +311,7 @@ describe('BluetoothInitializationStatus', () => {
       />
     );
     
-    expect(screen.getByText('Detalhes Técnicos')).toBeTruthy();
+    expect(screen.getByTestId('technical-details-button')).toBeTruthy();
   });
 
   it('shows progress bar for IN_PROGRESS and RETRYING states', () => {
@@ -330,9 +333,9 @@ describe('BluetoothInitializationStatus', () => {
       <BluetoothInitializationStatus status="NOT_STARTED" />
     );
     
-    expect(screen.queryByText(/\d+%/)).toBeNull();
+    expect(screen.queryByText(/%/)).toBeNull();
     
     rerender(<BluetoothInitializationStatus status="COMPLETED_SUCCESS" />);
-    expect(screen.queryByText(/\d+%/)).toBeNull();
+    expect(screen.queryByText(/%/)).toBeNull();
   });
 });

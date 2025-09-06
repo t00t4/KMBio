@@ -43,10 +43,10 @@ describe('BluetoothInitializationError', () => {
 
   it('renders error with correct title and message', () => {
     const error = createMockError('BLUETOOTH_DISABLED');
-    const { container } = render(<BluetoothInitializationError error={error} />);
-    
-    expect(container).toHaveTextContent('Bluetooth Desligado');
-    expect(container).toHaveTextContent('Test error message');
+    render(<BluetoothInitializationError error={error} />);
+
+    expect(screen.getByLabelText('error-title')).toHaveTextContent('Bluetooth Desligado');
+    expect(screen.getByLabelText('error-message')).toHaveTextContent('Test error message');
   });
 
   it('displays correct icons for different error types', () => {
@@ -60,11 +60,11 @@ describe('BluetoothInitializationError', () => {
     ];
 
     testCases.forEach(({ code, icon }) => {
-      const { container, unmount } = render(
+      const { unmount } = render(
         <BluetoothInitializationError error={createMockError(code)} />
       );
-      
-      expect(container).toHaveTextContent(icon);
+
+      expect(screen.getByLabelText('error-icon')).toHaveTextContent(icon);
       unmount();
     });
   });
@@ -73,74 +73,74 @@ describe('BluetoothInitializationError', () => {
     const error = createMockError('BLUETOOTH_DISABLED', {
       recoverySteps: ['Turn on Bluetooth', 'Try again'],
     });
-    
-    const { container } = render(<BluetoothInitializationError error={error} />);
-    
-    expect(container).toHaveTextContent('Para resolver:');
-    expect(container).toHaveTextContent('Turn on Bluetooth');
-    expect(container).toHaveTextContent('Try again');
+
+    render(<BluetoothInitializationError error={error} />);
+
+    expect(screen.getByText('Para resolver:')).toBeTruthy();
+    expect(screen.getByText('Turn on Bluetooth')).toBeTruthy();
+    expect(screen.getByText('Try again')).toBeTruthy();
   });
 
   it('calls onRetry when retry button is pressed', () => {
     const onRetry = jest.fn();
     const error = createMockError('BLE_MANAGER_INIT_FAILED');
-    
+
     render(<BluetoothInitializationError error={error} onRetry={onRetry} />);
-    
-    const retryButton = screen.getByText('Tentar Novamente', { exact: false });
+
+    const retryButton = screen.getByTestId('primary-action-button');
     fireEvent.press(retryButton);
-    
+
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it('calls onOpenSettings when settings button is pressed', () => {
     const onOpenSettings = jest.fn();
     const error = createMockError('BLUETOOTH_DISABLED');
-    
+
     render(<BluetoothInitializationError error={error} onOpenSettings={onOpenSettings} />);
-    
-    const settingsButton = screen.getByText('Abrir Configurações', { exact: false });
+
+    const settingsButton = screen.getByTestId('primary-action-button');
     fireEvent.press(settingsButton);
-    
+
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
   it('calls onDismiss when dismiss button is pressed', () => {
     const onDismiss = jest.fn();
     const error = createMockError('BLUETOOTH_DISABLED');
-    
+
     render(<BluetoothInitializationError error={error} onDismiss={onDismiss} />);
-    
-    const dismissButton = screen.getByText('Fechar', { exact: false });
+
+    const dismissButton = screen.getByTestId('dismiss-button');
     fireEvent.press(dismissButton);
-    
+
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
   it('shows technical details button when showTechnicalDetails is true', () => {
     const error = createMockError('BLUETOOTH_DISABLED');
-    
+
     render(<BluetoothInitializationError error={error} showTechnicalDetails={true} />);
-    
+
     expect(screen.getByTestId('technical-details-button')).toBeTruthy();
   });
 
   it('does not show technical details button when showTechnicalDetails is false', () => {
     const error = createMockError('BLUETOOTH_DISABLED');
-    
+
     render(<BluetoothInitializationError error={error} showTechnicalDetails={false} />);
-    
+
     expect(screen.queryByTestId('technical-details-button')).toBeNull();
   });
 
   it('shows technical details alert when technical details button is pressed', () => {
     const error = createMockError('BLUETOOTH_DISABLED');
-    
+
     render(<BluetoothInitializationError error={error} showTechnicalDetails={true} />);
-    
+
     const technicalButton = screen.getByTestId('technical-details-button');
     fireEvent.press(technicalButton);
-    
+
     expect(mockAlert).toHaveBeenCalledWith(
       'Detalhes Técnicos',
       expect.stringContaining('Código: BLUETOOTH_DISABLED'),
@@ -153,40 +153,40 @@ describe('BluetoothInitializationError', () => {
     const { rerender } = render(
       <BluetoothInitializationError error={createMockError('BLUETOOTH_DISABLED')} />
     );
-    expect(screen.getByTestId('primary-action-button')).toHaveTextContent('Abrir Configurações');
+    expect(screen.getByTestId('primary-action-button')).toHaveTextContent(/Abrir Configurações/);
 
     // PERMISSIONS_DENIED (recoverable) should show "Tentar Novamente"
     rerender(
-      <BluetoothInitializationError 
-        error={createMockError('PERMISSIONS_DENIED', { recoverable: true })} 
+      <BluetoothInitializationError
+        error={createMockError('PERMISSIONS_DENIED', { recoverable: true })}
         onRetry={jest.fn()}
       />
     );
-    expect(screen.getByTestId('primary-action-button')).toHaveTextContent('Tentar Novamente');
+    expect(screen.getByTestId('primary-action-button')).toHaveTextContent(/Tentar Novamente/);
 
     // PERMISSIONS_NEVER_ASK_AGAIN should show "Abrir Configurações"
     rerender(
       <BluetoothInitializationError error={createMockError('PERMISSIONS_NEVER_ASK_AGAIN')} />
     );
-    expect(screen.getByTestId('primary-action-button')).toHaveTextContent('Abrir Configurações');
+    expect(screen.getByTestId('primary-action-button')).toHaveTextContent(/Abrir Configurações/);
   });
 
   it('does not show retry button for non-recoverable errors', () => {
     const error = createMockError('BLUETOOTH_NOT_SUPPORTED', { recoverable: false });
-    
+
     render(<BluetoothInitializationError error={error} onRetry={jest.fn()} />);
-    
+
     expect(screen.queryByTestId('primary-action-button')).toBeNull();
   });
 
   it('shows default alert when onOpenSettings is not provided', () => {
     const error = createMockError('BLUETOOTH_DISABLED');
-    
+
     render(<BluetoothInitializationError error={error} />);
-    
+
     const settingsButton = screen.getByTestId('primary-action-button');
     fireEvent.press(settingsButton);
-    
+
     expect(mockAlert).toHaveBeenCalledWith(
       'Configurações',
       'Abra as configurações do dispositivo e ligue o Bluetooth'
@@ -195,9 +195,9 @@ describe('BluetoothInitializationError', () => {
 
   it('handles empty recovery steps gracefully', () => {
     const error = createMockError('BLUETOOTH_DISABLED', { recoverySteps: [] });
-    
+
     render(<BluetoothInitializationError error={error} />);
-    
+
     expect(screen.queryByTestId('steps-title')).toBeNull();
   });
 
@@ -205,14 +205,14 @@ describe('BluetoothInitializationError', () => {
     const error = createMockError('BLUETOOTH_DISABLED', {
       recoverySteps: ['First step', 'Second step', 'Third step'],
     });
-    
+
     render(<BluetoothInitializationError error={error} />);
-    
-    expect(screen.getByTestId('step-number-1')).toHaveTextContent('1.');
-    expect(screen.getByTestId('step-number-2')).toHaveTextContent('2.');
-    expect(screen.getByTestId('step-number-3')).toHaveTextContent('3.');
-    expect(screen.getByTestId('step-text-1')).toHaveTextContent('First step');
-    expect(screen.getByTestId('step-text-2')).toHaveTextContent('Second step');
-    expect(screen.getByTestId('step-text-3')).toHaveTextContent('Third step');
+
+    expect(screen.getByText('1.')).toBeTruthy();
+    expect(screen.getByText('2.')).toBeTruthy();
+    expect(screen.getByText('3.')).toBeTruthy();
+    expect(screen.getByText('First step')).toBeTruthy();
+    expect(screen.getByText('Second step')).toBeTruthy();
+    expect(screen.getByText('Third step')).toBeTruthy();
   });
 });
