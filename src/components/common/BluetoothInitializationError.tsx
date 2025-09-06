@@ -129,6 +129,8 @@ export const BluetoothInitializationError: React.FC<BluetoothInitializationError
             style={[styles.button, styles.primaryButton]}
             onPress={primaryAction.action}
             testID="primary-action-button"
+            accessibilityRole="button"
+            accessibilityLabel={primaryAction.label}
           >
             <Text style={styles.primaryButtonText}>{primaryAction.label}</Text>
           </TouchableOpacity>
@@ -139,6 +141,8 @@ export const BluetoothInitializationError: React.FC<BluetoothInitializationError
             style={[styles.button, styles.secondaryButton]}
             onPress={showTechnicalInfo}
             testID="technical-details-button"
+            accessibilityRole="button"
+            accessibilityLabel="Detalhes Técnicos"
           >
             <Text style={styles.secondaryButtonText}>Detalhes Técnicos</Text>
           </TouchableOpacity>
@@ -149,6 +153,8 @@ export const BluetoothInitializationError: React.FC<BluetoothInitializationError
             style={[styles.button, styles.secondaryButton]}
             onPress={onDismiss}
             testID="dismiss-button"
+            accessibilityRole="button"
+            accessibilityLabel="Fechar"
           >
             <Text style={styles.secondaryButtonText}>Fechar</Text>
           </TouchableOpacity>

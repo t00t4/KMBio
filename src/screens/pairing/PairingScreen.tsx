@@ -10,41 +10,55 @@ import {
   RefreshControl
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useBLEStore } from '../../stores/ble';
+import { 
+  useBLEStore, 
+  useBLEInitializationState
+} from '../../stores/ble';
 import { BLEDevice } from '../../types/ble';
 import { PermissionsManager } from '../../utils/permissions';
 import ELM327HelpModal from '../../components/common/ELM327HelpModal';
+import { BluetoothInitializationError } from '../../components/common/BluetoothInitializationError';
 
 export default function PairingScreen(): React.JSX.Element {
   const {
     connectionState,
     initialize,
+    retryInitialization,
     scanForDevices,
     connectToDevice,
     clearError,
+    clearInitializationError,
     isInitialized
   } = useBLEStore();
 
+  const initializationState = useBLEInitializationState();
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
 
   useEffect(() => {
-    initializeBLE();
-  }, []);
+    // Guard against calling initialize when already initialized or in progress
+    if (!isInitialized && initializationState?.status !== 'IN_PROGRESS') {
+      initializeBLE();
+    }
+  }, [isInitialized, initializationState?.status]);
 
   useEffect(() => {
     // Clear selection when scanning starts
-    if (connectionState.isScanning) {
+    if (connectionState?.isScanning) {
       setSelectedDevice(null);
     }
-  }, [connectionState.isScanning]);
+  }, [connectionState?.isScanning]);
 
   const initializeBLE = async () => {
+    if (isInitialized || initializationState?.status === 'IN_PROGRESS') {
+      return;
+    }
+
     try {
-      if (!isInitialized) {
-        await initialize();
-      }
+      setIsInitializing(true);
+      await initialize();
     } catch (error) {
       console.error('Failed to initialize BLE:', error);
       Alert.alert(
@@ -52,10 +66,65 @@ export default function PairingScreen(): React.JSX.Element {
         'Falha ao inicializar Bluetooth. Verifique se o Bluetooth está habilitado.',
         [{ text: 'OK' }]
       );
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
+  const handleRetryInitialization = async () => {
+    try {
+      setIsInitializing(true);
+      clearInitializationError();
+      const result = await retryInitialization();
+      
+      if (result.success) {
+        Alert.alert(
+          'Inicialização Bem-sucedida',
+          'Bluetooth inicializado com sucesso! Agora você pode buscar dispositivos.',
+          [
+            { text: 'OK' },
+            { text: 'Buscar Dispositivos', onPress: handleStartScan }
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Failed to retry initialization:', error);
+      Alert.alert(
+        'Erro na Inicialização',
+        'Não foi possível inicializar o Bluetooth. Verifique se o Bluetooth está habilitado e as permissões foram concedidas.',
+        [
+          { text: 'OK' },
+          { text: 'Tentar Novamente', onPress: () => setTimeout(handleRetryInitialization, 1000) }
+        ]
+      );
+    } finally {
+      setIsInitializing(false);
     }
   };
 
   const handleStartScan = async () => {
+    // Check initialization status first
+    if (!isInitialized || initializationState?.status !== 'COMPLETED_SUCCESS') {
+      Alert.alert(
+        'Bluetooth Não Inicializado',
+        'O sistema Bluetooth precisa ser inicializado antes de buscar dispositivos.',
+        [
+          { text: 'Cancelar' },
+          { 
+            text: 'Inicializar', 
+            onPress: async () => {
+              await handleRetryInitialization();
+              // After successful initialization, automatically start scanning
+              if (isInitialized && initializationState?.status === 'COMPLETED_SUCCESS') {
+                setTimeout(handleStartScan, 500);
+              }
+            }
+          }
+        ]
+      );
+      return;
+    }
+
     try {
       // Clear any previous errors
       clearError();
@@ -79,12 +148,27 @@ export default function PairingScreen(): React.JSX.Element {
       }
 
       await scanForDevices(10000); // 10 second scan
+      
+      // Show success message if devices found
+      if (connectionState.availableDevices.length > 0) {
+        const elm327Count = connectionState.availableDevices.filter(isELM327Device).length;
+        if (elm327Count > 0) {
+          Alert.alert(
+            'Dispositivos Encontrados',
+            `Encontrados ${elm327Count} dispositivo(s) ELM327. Selecione um para conectar.`,
+            [{ text: 'OK' }]
+          );
+        }
+      }
     } catch (error) {
       console.error('Scan failed:', error);
       Alert.alert(
         'Erro no Scan',
         'Falha ao buscar dispositivos. Verifique se o Bluetooth está ligado e tente novamente.',
-        [{ text: 'OK' }]
+        [
+          { text: 'OK' },
+          { text: 'Tentar Novamente', onPress: () => setTimeout(handleStartScan, 1000) }
+        ]
       );
     }
   };
@@ -95,6 +179,19 @@ export default function PairingScreen(): React.JSX.Element {
 
   const handleConnect = async () => {
     if (!selectedDevice) return;
+
+    // Check initialization status first
+    if (!isInitialized || initializationState?.status !== 'COMPLETED_SUCCESS') {
+      Alert.alert(
+        'Bluetooth Não Inicializado',
+        'O sistema Bluetooth precisa ser inicializado antes de conectar dispositivos.',
+        [
+          { text: 'Cancelar' },
+          { text: 'Inicializar', onPress: handleRetryInitialization }
+        ]
+      );
+      return;
+    }
 
     try {
       setIsTestingConnection(true);
@@ -250,6 +347,65 @@ export default function PairingScreen(): React.JSX.Element {
   };
 
   const renderContent = () => {
+    // Show initialization status
+    if (!isInitialized || initializationState?.status === 'IN_PROGRESS' || isInitializing) {
+      return (
+        <View style={styles.initializingState}>
+          <ActivityIndicator size="large" color="#2E7D32" />
+          <Text style={styles.initializingText}>Inicializando Bluetooth...</Text>
+          <Text style={styles.initializingSubtext}>
+            Verificando permissões e configurando sistema
+          </Text>
+          {(initializationState?.progress || 0) > 0 && (
+            <View style={styles.progressContainer}>
+              <View style={styles.progressBar}>
+                <View 
+                  style={[
+                    styles.progressFill, 
+                    { width: `${initializationState?.progress || 0}%` }
+                  ]} 
+                />
+              </View>
+              <Text style={styles.progressText}>
+                {initializationState?.progress || 0}%
+              </Text>
+            </View>
+          )}
+        </View>
+      );
+    }
+
+    if (initializationState?.status === 'COMPLETED_ERROR') {
+      return (
+        <View style={styles.errorState}>
+          <Icon name="error" size={64} color="#F44336" />
+          <Text style={styles.errorText}>
+            Falha na Inicialização do Bluetooth
+          </Text>
+          <Text style={styles.errorSubtext}>
+            O sistema Bluetooth precisa ser inicializado para buscar dispositivos
+          </Text>
+          <TouchableOpacity
+            style={[styles.retryButton, isInitializing && styles.disabledButton]}
+            onPress={handleRetryInitialization}
+            disabled={isInitializing}
+            testID="retry-initialization-button"
+            accessibilityRole="button"
+            accessibilityLabel={isInitializing ? 'Inicializando...' : 'Tentar Novamente'}
+          >
+            <View style={styles.buttonContent}>
+              {isInitializing && (
+                <ActivityIndicator size="small" color="#fff" style={styles.buttonLoader} />
+              )}
+              <Text style={styles.retryButtonText}>
+                {isInitializing ? 'Inicializando...' : 'Tentar Novamente'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
     if (connectionState.isScanning) {
       return (
         <View style={styles.scanningState}>
@@ -327,6 +483,16 @@ export default function PairingScreen(): React.JSX.Element {
         </Text>
       </View>
 
+      {/* Bluetooth Initialization Error */}
+      {initializationState?.error && (
+        <BluetoothInitializationError
+          error={initializationState.error}
+          onRetry={handleRetryInitialization}
+          onDismiss={clearInitializationError}
+          showTechnicalDetails={true}
+        />
+      )}
+
       {renderError()}
 
       <View style={styles.content}>
@@ -335,20 +501,35 @@ export default function PairingScreen(): React.JSX.Element {
 
       <View style={styles.footer}>
         <TouchableOpacity
-          style={[styles.button, styles.secondaryButton]}
+          style={[
+            styles.button, 
+            styles.secondaryButton,
+            (!isInitialized || initializationState?.status !== 'COMPLETED_SUCCESS') && styles.disabledButton
+          ]}
           onPress={handleStartScan}
-          disabled={connectionState.isScanning || connectionState.isConnecting}
+          disabled={
+            connectionState.isScanning || 
+            connectionState.isConnecting || 
+            !isInitialized || 
+            initializationState?.status !== 'COMPLETED_SUCCESS'
+          }
+          testID="scan-devices-button"
+          accessibilityRole="button"
+          accessibilityLabel={connectionState.availableDevices.length > 0 ? 'Buscar Novamente' : 'Buscar Dispositivos'}
         >
           {connectionState.isScanning ? (
             <ActivityIndicator size="small" color="#333" />
           ) : (
-            <Text style={styles.secondaryButtonText}>
+            <Text style={[
+              styles.secondaryButtonText,
+              (!isInitialized || initializationState?.status !== 'COMPLETED_SUCCESS') && styles.disabledButtonText
+            ]}>
               {connectionState.availableDevices.length > 0 ? 'Buscar Novamente' : 'Buscar Dispositivos'}
             </Text>
           )}
         </TouchableOpacity>
 
-        {selectedDevice && (
+        {selectedDevice && isInitialized && initializationState?.status === 'COMPLETED_SUCCESS' && (
           <TouchableOpacity
             style={[
               styles.button,
@@ -594,5 +775,86 @@ const styles = StyleSheet.create({
   connectingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  initializingState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  initializingText: {
+    fontSize: 18,
+    color: '#2E7D32',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  initializingSubtext: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  errorState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  errorText: {
+    fontSize: 18,
+    color: '#F44336',
+    marginTop: 16,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  errorSubtext: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 8,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#F44336',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  buttonLoader: {
+    marginRight: 8,
+  },
+  progressContainer: {
+    width: '100%',
+    marginTop: 16,
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 2,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#2E7D32',
+    borderRadius: 2,
+  },
+  progressText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  disabledButtonText: {
+    color: '#999',
   },
 });

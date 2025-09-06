@@ -1,17 +1,19 @@
 {
-  "testEnvironment": "jsdom",
+  "preset": "jest-expo",
+  "testEnvironment": "node",
+  "extensionsToTreatAsEsm": [".ts", ".tsx"],
+  "globals": {
+    "ts-jest": {
+      "useESM": true
+    }
+  },
   "roots": ["<rootDir>/src"],
   "testMatch": [
     "**/__tests__/**/*.+(ts|tsx|js)",
     "**/*.(test|spec).+(ts|tsx|js)"
   ],
   "transform": {
-    "^.+\\.(ts|tsx)$": ["ts-jest", {
-      "tsconfig": {
-        "jsx": "react-jsx"
-      }
-    }],
-    "^.+\\.(js|jsx)$": "babel-jest"
+    "^.+\\.(ts|tsx|js|jsx)$": "babel-jest"
   },
   "collectCoverageFrom": [
     "src/**/*.{ts,tsx}",
@@ -21,11 +23,10 @@
   "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json", "node"],
   "setupFilesAfterEnv": ["<rootDir>/src/setupTests.ts"],
   "transformIgnorePatterns": [
-    "node_modules/(?!(react-native|@react-native|@react-navigation|react-native-ble-plx|react-native-vector-icons)/)"
+    "node_modules/(?!(react-native|@react-native|@react-navigation|react-native-ble-plx|react-native-vector-icons|expo|@expo|expo-modules-core)/)"
   ],
   "moduleNameMapper": {
     "^@/(.*)$": "<rootDir>/src/$1",
-    "^react-native$": "react-native-web",
     "\\.(jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$": "identity-obj-proxy"
   }
 }

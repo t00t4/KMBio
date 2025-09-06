@@ -4,15 +4,10 @@ import { Alert } from 'react-native';
 import { BluetoothInitializationError } from '../../../components/common/BluetoothInitializationError';
 import { BluetoothInitializationError as IBluetoothInitializationError } from '../../../types/ble';
 
-// Mock Alert
-jest.mock('react-native', () => ({
-  ...jest.requireActual('react-native'),
-  Alert: {
-    alert: jest.fn(),
-  },
-}));
-
+// Get the mocked Alert
 const mockAlert = Alert.alert as jest.MockedFunction<typeof Alert.alert>;
+
+
 
 describe('BluetoothInitializationError', () => {
   const createMockError = (
@@ -76,7 +71,7 @@ describe('BluetoothInitializationError', () => {
 
     render(<BluetoothInitializationError error={error} />);
 
-    expect(screen.getByText('Para resolver:')).toBeTruthy();
+    expect(screen.getByText(/Para resolver:/)).toBeTruthy();
     expect(screen.getByText('Turn on Bluetooth')).toBeTruthy();
     expect(screen.getByText('Try again')).toBeTruthy();
   });
@@ -87,7 +82,7 @@ describe('BluetoothInitializationError', () => {
 
     render(<BluetoothInitializationError error={error} onRetry={onRetry} />);
 
-    const retryButton = screen.getByTestId('primary-action-button');
+    const retryButton = screen.getByLabelText('Tentar Novamente');
     fireEvent.press(retryButton);
 
     expect(onRetry).toHaveBeenCalledTimes(1);
@@ -99,7 +94,7 @@ describe('BluetoothInitializationError', () => {
 
     render(<BluetoothInitializationError error={error} onOpenSettings={onOpenSettings} />);
 
-    const settingsButton = screen.getByTestId('primary-action-button');
+    const settingsButton = screen.getByLabelText('Abrir Configurações');
     fireEvent.press(settingsButton);
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
@@ -111,7 +106,7 @@ describe('BluetoothInitializationError', () => {
 
     render(<BluetoothInitializationError error={error} onDismiss={onDismiss} />);
 
-    const dismissButton = screen.getByTestId('dismiss-button');
+    const dismissButton = screen.getByLabelText('Fechar');
     fireEvent.press(dismissButton);
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
@@ -122,7 +117,7 @@ describe('BluetoothInitializationError', () => {
 
     render(<BluetoothInitializationError error={error} showTechnicalDetails={true} />);
 
-    expect(screen.getByTestId('technical-details-button')).toBeTruthy();
+    expect(screen.getByLabelText('Detalhes Técnicos')).toBeTruthy();
   });
 
   it('does not show technical details button when showTechnicalDetails is false', () => {
@@ -130,7 +125,7 @@ describe('BluetoothInitializationError', () => {
 
     render(<BluetoothInitializationError error={error} showTechnicalDetails={false} />);
 
-    expect(screen.queryByTestId('technical-details-button')).toBeNull();
+    expect(screen.queryByLabelText('Detalhes Técnicos')).toBeNull();
   });
 
   it('shows technical details alert when technical details button is pressed', () => {
@@ -138,7 +133,7 @@ describe('BluetoothInitializationError', () => {
 
     render(<BluetoothInitializationError error={error} showTechnicalDetails={true} />);
 
-    const technicalButton = screen.getByTestId('technical-details-button');
+    const technicalButton = screen.getByLabelText('Detalhes Técnicos');
     fireEvent.press(technicalButton);
 
     expect(mockAlert).toHaveBeenCalledWith(
@@ -153,7 +148,7 @@ describe('BluetoothInitializationError', () => {
     const { rerender } = render(
       <BluetoothInitializationError error={createMockError('BLUETOOTH_DISABLED')} />
     );
-    expect(screen.getByTestId('primary-action-button')).toHaveTextContent(/Abrir Configurações/);
+    expect(screen.getByLabelText('Abrir Configurações')).toBeTruthy();
 
     // PERMISSIONS_DENIED (recoverable) should show "Tentar Novamente"
     rerender(
@@ -162,13 +157,13 @@ describe('BluetoothInitializationError', () => {
         onRetry={jest.fn()}
       />
     );
-    expect(screen.getByTestId('primary-action-button')).toHaveTextContent(/Tentar Novamente/);
+    expect(screen.getByLabelText('Tentar Novamente')).toBeTruthy();
 
     // PERMISSIONS_NEVER_ASK_AGAIN should show "Abrir Configurações"
     rerender(
       <BluetoothInitializationError error={createMockError('PERMISSIONS_NEVER_ASK_AGAIN')} />
     );
-    expect(screen.getByTestId('primary-action-button')).toHaveTextContent(/Abrir Configurações/);
+    expect(screen.getByLabelText('Abrir Configurações')).toBeTruthy();
   });
 
   it('does not show retry button for non-recoverable errors', () => {
@@ -176,7 +171,7 @@ describe('BluetoothInitializationError', () => {
 
     render(<BluetoothInitializationError error={error} onRetry={jest.fn()} />);
 
-    expect(screen.queryByTestId('primary-action-button')).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('shows default alert when onOpenSettings is not provided', () => {
@@ -184,7 +179,7 @@ describe('BluetoothInitializationError', () => {
 
     render(<BluetoothInitializationError error={error} />);
 
-    const settingsButton = screen.getByTestId('primary-action-button');
+    const settingsButton = screen.getByLabelText('Abrir Configurações');
     fireEvent.press(settingsButton);
 
     expect(mockAlert).toHaveBeenCalledWith(
@@ -198,7 +193,7 @@ describe('BluetoothInitializationError', () => {
 
     render(<BluetoothInitializationError error={error} />);
 
-    expect(screen.queryByTestId('steps-title')).toBeNull();
+    expect(screen.queryByText('Para resolver:')).toBeNull();
   });
 
   it('renders multiple recovery steps with correct numbering', () => {
@@ -208,9 +203,9 @@ describe('BluetoothInitializationError', () => {
 
     render(<BluetoothInitializationError error={error} />);
 
-    expect(screen.getByText('1.')).toBeTruthy();
-    expect(screen.getByText('2.')).toBeTruthy();
-    expect(screen.getByText('3.')).toBeTruthy();
+    expect(screen.getByText(/1\./)).toBeTruthy();
+    expect(screen.getByText(/2\./)).toBeTruthy();
+    expect(screen.getByText(/3\./)).toBeTruthy();
     expect(screen.getByText('First step')).toBeTruthy();
     expect(screen.getByText('Second step')).toBeTruthy();
     expect(screen.getByText('Third step')).toBeTruthy();

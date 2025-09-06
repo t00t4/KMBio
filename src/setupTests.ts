@@ -1,5 +1,5 @@
 // Jest setup file for React Native testing
-// Add any global test setup here
+import '@testing-library/jest-native/extend-expect';
 
 // Mock console methods to reduce noise in tests
 global.console = {
@@ -9,7 +9,7 @@ global.console = {
   error: jest.fn(),
 };
 
-// Mock React Native Platform
+// Mock specific React Native modules
 jest.mock('react-native', () => ({
   Platform: {
     OS: 'android',
@@ -31,8 +31,23 @@ jest.mock('react-native', () => ({
     requestMultiple: jest.fn(),
     check: jest.fn(),
   },
-  NativeModules: {},
+  View: 'View',
+  Text: 'Text',
+  TouchableOpacity: 'TouchableOpacity',
+  ScrollView: 'ScrollView',
+  FlatList: 'FlatList',
+  ActivityIndicator: 'ActivityIndicator',
+  StyleSheet: {
+    create: (styles: any) => styles,
+    flatten: (style: any) => style,
+  },
+  Dimensions: {
+    get: jest.fn(() => ({ width: 375, height: 667 })),
+  },
 }));
+
+// Mock react-native-vector-icons
+jest.mock('react-native-vector-icons/MaterialIcons', () => 'Icon');
 
 // Mock react-native-ble-plx
 jest.mock('react-native-ble-plx', () => ({

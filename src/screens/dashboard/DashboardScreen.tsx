@@ -1,11 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/types';
-import { useBLEConnectionState, useBLEConnectedDevice } from '../../stores/ble';
+import {
+  useBLEConnectionState,
+  useBLEConnectedDevice,
+  useBLEInitializationState,
+  useBLEIsInitialized,
+  useBLEStore
+} from '../../stores/ble';
 import BLETestComponent from '../../components/common/BLETestComponent';
+import { BluetoothInitializationError } from '../../components/common/BluetoothInitializationError';
 import { handleNavigationError, debounceNavigation } from '../../utils/navigationErrorHandler';
 import { logButtonPress, logNavigation, logNavigationError, logUserInteraction } from '../../utils/debugLogger';
 
@@ -15,9 +22,85 @@ export default function DashboardScreen(): React.JSX.Element {
   const navigation = useNavigation<NavigationProp>();
   const connectionState = useBLEConnectionState();
   const connectedDevice = useBLEConnectedDevice();
+  const initializationState = useBLEInitializationState();
+  const isInitialized = useBLEIsInitialized();
+  const { initialize, retryInitialization, clearInitializationError } = useBLEStore();
   const [isNavigating, setIsNavigating] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
+  // Initialize Bluetooth on component mount
+  useEffect(() => {
+    // Guard against calling initialize when already initialized or in progress
+    if (!isInitialized && initializationState?.status !== 'IN_PROGRESS') {
+      initializeBluetooth();
+    }
+  }, [isInitialized, initializationState?.status]);
+
+  const initializeBluetooth = async () => {
+    if (isInitialized || initializationState?.status === 'IN_PROGRESS') {
+      return;
+    }
+
+    try {
+      setIsInitializing(true);
+      await initialize();
+    } catch (error) {
+      console.error('Failed to initialize Bluetooth:', error);
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
+  const handleRetryInitialization = async () => {
+    try {
+      setIsInitializing(true);
+      clearInitializationError();
+      await retryInitialization();
+    } catch (error) {
+      console.error('Failed to retry initialization:', error);
+      Alert.alert(
+        'Erro na Inicialização',
+        'Não foi possível inicializar o Bluetooth. Verifique se o Bluetooth está habilitado e tente novamente.',
+        [
+          { text: 'OK' },
+          { text: 'Tentar Novamente', onPress: () => setTimeout(handleRetryInitialization, 1000) }
+        ]
+      );
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
   const handleStartTrip = () => {
-    if (!connectionState.isConnected) {
+    // Check initialization status first
+    if (!isInitialized || initializationState?.status !== 'COMPLETED_SUCCESS') {
+      Alert.alert(
+        'Bluetooth Não Inicializado',
+        'O sistema Bluetooth precisa ser inicializado antes de iniciar uma viagem.',
+        [
+          { text: 'Cancelar' },
+          { 
+            text: 'Inicializar', 
+            onPress: async () => {
+              await handleRetryInitialization();
+              // After successful initialization, check connection again
+              if (isInitialized && !connectionState?.isConnected) {
+                Alert.alert(
+                  'Conectar Dispositivo',
+                  'Bluetooth inicializado com sucesso! Agora você precisa conectar um dispositivo OBD-II.',
+                  [
+                    { text: 'Mais Tarde' },
+                    { text: 'Conectar Agora', onPress: () => navigation.navigate('Pairing') }
+                  ]
+                );
+              }
+            }
+          }
+        ]
+      );
+      return;
+    }
+
+    if (!connectionState?.isConnected) {
       // Navigate to pairing if not connected
       navigation.navigate('Pairing');
     } else {
@@ -29,14 +112,29 @@ export default function DashboardScreen(): React.JSX.Element {
   const handleConnectOBD = debounceNavigation(async () => {
     const context = { screen: 'Dashboard', component: 'ConnectOBDButton' };
     const startTime = Date.now();
-    
+
     logButtonPress('Connect OBD Device', context, {
-      connectionState: connectionState.isConnected ? 'connected' : 'disconnected',
-      isConnecting: connectionState.isConnecting,
+      connectionState: connectionState?.isConnected ? 'connected' : 'disconnected',
+      isConnecting: connectionState?.isConnecting,
       connectedDevice: connectedDevice?.name || null,
+      initializationStatus: initializationState?.status,
+      isInitialized,
       timestamp: new Date().toISOString()
     });
-    
+
+    // Check initialization status first
+    if (!isInitialized || initializationState?.status !== 'COMPLETED_SUCCESS') {
+      Alert.alert(
+        'Bluetooth Não Inicializado',
+        'O sistema Bluetooth precisa ser inicializado antes de conectar dispositivos.',
+        [
+          { text: 'Cancelar' },
+          { text: 'Inicializar', onPress: handleRetryInitialization }
+        ]
+      );
+      return;
+    }
+
     // Prevent multiple simultaneous navigation attempts
     if (isNavigating) {
       logUserInteraction('Duplicate navigation attempt blocked', context, {
@@ -45,23 +143,23 @@ export default function DashboardScreen(): React.JSX.Element {
       });
       return;
     }
-    
+
     // Additional validation checks
-    if (connectionState.isConnecting) {
+    if (connectionState?.isConnecting) {
       logUserInteraction('Navigation blocked - device connecting', context, {
         reason: 'Device is currently connecting',
         connectionState: 'connecting'
       });
       return;
     }
-    
+
     try {
       setIsNavigating(true);
       logUserInteraction('Navigation state set to loading', context, {
         previousState: 'idle',
         newState: 'navigating'
       });
-      
+
       // Enhanced navigation validation
       if (!navigation) {
         throw new Error('Navigation object not available - navigation context missing');
@@ -85,12 +183,13 @@ export default function DashboardScreen(): React.JSX.Element {
       logNavigation('Dashboard', 'Pairing', context, {
         navigationMethod: 'navigate',
         targetScreen: 'Pairing',
-        connectionState: connectionState.isConnected ? 'connected' : 'disconnected',
-        deviceName: connectedDevice?.name || null
+        connectionState: connectionState?.isConnected ? 'connected' : 'disconnected',
+        deviceName: connectedDevice?.name || null,
+        initializationStatus: initializationState?.status
       });
-      
+
       navigation.navigate('Pairing');
-      
+
       // Log successful navigation with timing
       const navigationTime = Date.now() - startTime;
       logUserInteraction('Navigation completed successfully', context, {
@@ -98,22 +197,23 @@ export default function DashboardScreen(): React.JSX.Element {
         targetScreen: 'Pairing',
         success: true
       });
-      
+
     } catch (error) {
       const navigationError = error instanceof Error ? error : new Error(String(error));
       const errorTime = Date.now() - startTime;
-      
+
       // Enhanced error logging with more context
       logNavigationError(navigationError, context, {
         targetScreen: 'Pairing',
-        connectionState: connectionState.isConnected ? 'connected' : 'disconnected',
+        connectionState: connectionState?.isConnected ? 'connected' : 'disconnected',
         deviceName: connectedDevice?.name || null,
         duration: errorTime,
         errorType: navigationError.name || 'UnknownError',
         navigationState: navigation?.getState?.() || 'unavailable',
+        initializationStatus: initializationState?.status,
         timestamp: new Date().toISOString()
       });
-      
+
       // Enhanced error handling with more specific retry logic
       handleNavigationError(navigationError, {
         context: 'tela de pareamento',
@@ -148,13 +248,38 @@ export default function DashboardScreen(): React.JSX.Element {
 
   // Get connection status info
   const getConnectionStatus = () => {
-    if (connectionState.isConnecting) {
+    // Check initialization status first
+    if (!isInitialized || initializationState?.status === 'NOT_STARTED') {
+      return {
+        text: 'Bluetooth não inicializado',
+        color: '#FF5722',
+        icon: 'bluetooth-disabled'
+      };
+    }
+
+    if (initializationState?.status === 'IN_PROGRESS' || isInitializing) {
+      return {
+        text: 'Inicializando Bluetooth...',
+        color: '#FF9800',
+        icon: 'bluetooth-searching'
+      };
+    }
+
+    if (initializationState?.status === 'COMPLETED_ERROR') {
+      return {
+        text: 'Erro na inicialização do Bluetooth',
+        color: '#F44336',
+        icon: 'bluetooth-disabled'
+      };
+    }
+
+    if (connectionState?.isConnecting) {
       return {
         text: 'Conectando...',
         color: '#FF9800',
         icon: 'bluetooth-searching'
       };
-    } else if (connectionState.isConnected && connectedDevice) {
+    } else if (connectionState?.isConnected && connectedDevice) {
       return {
         text: `Conectado: ${connectedDevice.name || 'Dispositivo OBD-II'}`,
         color: '#4CAF50',
@@ -178,6 +303,16 @@ export default function DashboardScreen(): React.JSX.Element {
         <Text style={styles.subtitle}>Bem-vindo de volta!</Text>
       </View>
 
+      {/* Bluetooth Initialization Error */}
+      {initializationState?.error && (
+        <BluetoothInitializationError
+          error={initializationState.error}
+          onRetry={handleRetryInitialization}
+          onDismiss={clearInitializationError}
+          showTechnicalDetails={true}
+        />
+      )}
+
       {/* Connection Status */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
@@ -187,36 +322,84 @@ export default function DashboardScreen(): React.JSX.Element {
         <Text style={[styles.statusText, { color: connectionStatus.color }]}>
           {connectionStatus.text}
         </Text>
-        {!connectionState.isConnected && (
-          <TouchableOpacity 
+
+        {/* Initialization Progress */}
+        {(initializationState?.status === 'IN_PROGRESS' || isInitializing) && (
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${initializationState?.progress || 0}%` }
+                ]}
+              />
+            </View>
+            <Text style={styles.progressText}>
+              Inicializando... {initializationState?.progress || 0}%
+            </Text>
+          </View>
+        )}
+
+        {/* Initialization Error Actions */}
+        {initializationState?.status === 'COMPLETED_ERROR' && !initializationState?.error && (
+          <TouchableOpacity
+            style={[styles.errorButton, isInitializing && styles.disabledButton]}
+            onPress={handleRetryInitialization}
+            disabled={isInitializing}
+            testID="retry-initialization-button"
+            accessibilityRole="button"
+            accessibilityLabel={isInitializing ? 'Inicializando...' : 'Tentar Novamente'}
+          >
+            <View style={styles.buttonContent}>
+              {isInitializing && (
+                <ActivityIndicator size="small" color="#fff" style={styles.buttonLoader} />
+              )}
+              <Text style={styles.errorButtonText}>
+                {isInitializing ? 'Inicializando...' : 'Tentar Novamente'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* Connection Actions */}
+        {isInitialized && initializationState?.status === 'COMPLETED_SUCCESS' && !connectionState?.isConnected && (
+          <TouchableOpacity
             style={[
               styles.secondaryButton,
               (connectionState.isConnecting || isNavigating) && styles.disabledButton
-            ]} 
+            ]}
             onPress={handleConnectOBD}
-            disabled={connectionState.isConnecting || isNavigating}
-            activeOpacity={connectionState.isConnecting || isNavigating ? 1 : 0.7}
+            disabled={connectionState?.isConnecting || isNavigating}
+            activeOpacity={connectionState?.isConnecting || isNavigating ? 1 : 0.7}
+            testID="connect-device-button"
+            accessibilityRole="button"
+            accessibilityLabel={connectionState?.isConnecting
+              ? 'Conectando...'
+              : isNavigating
+                ? 'Abrindo...'
+                : 'Conectar Dispositivo'}
           >
             <View style={styles.buttonContent}>
-              {(connectionState.isConnecting || isNavigating) && (
+              {(connectionState?.isConnecting || isNavigating) && (
                 <ActivityIndicator size="small" color="#333" style={styles.buttonLoader} />
               )}
               <Text style={[
                 styles.secondaryButtonText,
-                (connectionState.isConnecting || isNavigating) && styles.disabledButtonText
+                (connectionState?.isConnecting || isNavigating) && styles.disabledButtonText
               ]}>
-                {connectionState.isConnecting 
-                  ? 'Conectando...' 
-                  : isNavigating 
-                    ? 'Abrindo...' 
+                {connectionState?.isConnecting
+                  ? 'Conectando...'
+                  : isNavigating
+                    ? 'Abrindo...'
                     : 'Conectar Dispositivo'}
               </Text>
             </View>
           </TouchableOpacity>
         )}
-        {connectionState.isConnected && (
-          <TouchableOpacity 
-            style={[styles.successButton, isNavigating && styles.disabledButton]} 
+
+        {connectionState?.isConnected && (
+          <TouchableOpacity
+            style={[styles.successButton, isNavigating && styles.disabledButton]}
             onPress={handleConnectOBD}
             disabled={isNavigating}
             activeOpacity={isNavigating ? 1 : 0.7}
@@ -285,9 +468,9 @@ export default function DashboardScreen(): React.JSX.Element {
       {/* Debug Component - Remove in production */}
       <View style={styles.debugContainer}>
         <Text style={styles.debugTitle}>🔧 Debug - Teste de Botões</Text>
-        
-        <TouchableOpacity 
-          style={styles.debugButton} 
+
+        <TouchableOpacity
+          style={styles.debugButton}
           onPress={() => {
             console.log('DEBUG: Simple button pressed!');
             Alert.alert('Debug', 'Botão simples funcionou!');
@@ -297,8 +480,8 @@ export default function DashboardScreen(): React.JSX.Element {
           <Text style={styles.debugButtonText}>Teste Botão Simples</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.debugButton} 
+        <TouchableOpacity
+          style={styles.debugButton}
           onPress={() => {
             console.log('DEBUG: Navigation test button pressed!');
             try {
@@ -420,6 +603,38 @@ const styles = StyleSheet.create({
   },
   buttonLoader: {
     marginRight: 8,
+  },
+  progressContainer: {
+    marginBottom: 16,
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 2,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#2E7D32',
+    borderRadius: 2,
+  },
+  progressText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  errorButton: {
+    backgroundColor: '#F44336',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  errorButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
   },
   debugContainer: {
     backgroundColor: '#FFF3E0',
